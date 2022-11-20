@@ -153,7 +153,7 @@ class ConditionalGenerator(LightningModule):
         super().__init__()
         
         self.save_hyperparameters()
-        self.print(self.hparams)
+        print(self.hparams)
         self.configure_model()
         self.loss_fct = LabelSmoother()
         self.collate_fct = partial(collate_fct,
