@@ -113,7 +113,6 @@ class SingleTowerRankingModel(LightningModule):
         super().__init__()
         
         self.save_hyperparameters()
-        print(self.hparams)
         self.configure_model()
         self.train_collate_fct = partial(collate_fct,
                                   toker = self.toker,
@@ -243,6 +242,7 @@ class SingleTowerRankingModel(LightningModule):
 
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
+        self.print(self.hparams)
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step !=0:

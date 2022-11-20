@@ -1,0 +1,24 @@
+## from this paper: https://openreview.net/forum?id=94WEPuo8D_a
+## path
+data_path: ../data/samsum/test.jsonl
+memory_path: null
+output_path: null
+memory_encoding: null
+pretrained_model_path: null
+src: document
+trg: summary
+## training
+per_device_eval_batch_size: 1
+accelerator: gpu
+train_max_src_len: 512
+train_max_trg_len: 80
+seed: 980406
+## generation
+gen_max_len: 69
+gen_min_len: 9
+no_repeat_ngram_size: 3
+early_stopping: true
+length_penalty: 1.0
+do_sample: true
+top_p: 1.0
+temperature: 1.0

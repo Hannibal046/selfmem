@@ -153,7 +153,6 @@ class ConditionalGenerator(LightningModule):
         super().__init__()
         
         self.save_hyperparameters()
-        print(self.hparams)
         self.configure_model()
         self.loss_fct = LabelSmoother()
         self.collate_fct = partial(collate_fct,
@@ -292,6 +291,7 @@ class ConditionalGenerator(LightningModule):
         
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
+        self.print(self.hparams)
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
@@ -329,6 +329,10 @@ class ConditionalGenerator(LightningModule):
             if 'memory_input_ids' in batch.keys():
                 additional_kwargs['memory_input_ids']=batch['memory_input_ids']
                 additional_kwargs['memory_attention_mask']=batch['memory_attention_mask']
+            if self.hparams.num_return_sequences is None:
+                num_return_sequences = 1
+            else:
+                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences,
             output = self.model.generate(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
@@ -338,7 +342,7 @@ class ConditionalGenerator(LightningModule):
                 num_beams=self.hparams.num_beams,
                 length_penalty=self.hparams.length_penalty,
                 early_stopping=self.hparams.early_stopping,
-                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences,
+                num_return_sequences=num_return_sequences
                 num_beam_groups=self.hparams.num_beam_groups, 
                 diversity_penalty=self.hparams.diversity_penalty,
                 top_p=self.hparams.top_p,
