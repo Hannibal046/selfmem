@@ -342,7 +342,7 @@ class ConditionalGenerator(LightningModule):
                 num_beams=self.hparams.num_beams,
                 length_penalty=self.hparams.length_penalty,
                 early_stopping=self.hparams.early_stopping,
-                num_return_sequences=num_return_sequences
+                num_return_sequences=num_return_sequences,
                 num_beam_groups=self.hparams.num_beam_groups, 
                 diversity_penalty=self.hparams.diversity_penalty,
                 top_p=self.hparams.top_p,
