@@ -332,7 +332,7 @@ class ConditionalGenerator(LightningModule):
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
                 max_length=self.hparams.gen_max_len+2,
-                min_length=self.hparams.gen_min_len+1,
+                min_length=self.hparams.gen_min_len+1 if self.hparams.gen_min_len is not None else None,
                 no_repeat_ngram_size=self.hparams.no_repeat_ngram_size,
                 num_beams=self.hparams.num_beams,
                 length_penalty=self.hparams.length_penalty,
