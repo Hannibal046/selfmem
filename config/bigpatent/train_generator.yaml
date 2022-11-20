@@ -7,9 +7,10 @@ memory_encoding: concate
 src: document
 trg: summary
 ## training
+## on 8 cards
 max_epochs: 20
 per_device_train_batch_size: 4
-accumulate_grad_batches: 4
+accumulate_grad_batches: 2
 per_device_eval_batch_size: 8
 lr: 3.0e-3
 warmup_steps: 10000
