@@ -163,34 +163,6 @@ class Generator(ConditionalGenerator):
                                            shuffle=False,collate_fn=self.collate_fct,
                                            num_workers=8, pin_memory=True,sampler=sampler)
     
-    def generate(self,batch):
-        hyps = []
-        with torch.no_grad():
-            batch_size = batch['input_ids'].shape[0]
-            additional_kwargs = {}
-            if 'memory_input_ids' in batch.keys():
-                additional_kwargs['memory_input_ids']=batch['memory_input_ids']
-                additional_kwargs['memory_attention_mask']=batch['memory_attention_mask']
-            output = self.model.generate(
-                input_ids=batch['input_ids'],
-                attention_mask=batch['attention_mask'],
-                max_length=self.hparams.gen_max_len+2,
-                min_length=self.hparams.gen_min_len+1,
-                no_repeat_ngram_size=self.hparams.no_repeat_ngram_size,
-                num_beams=self.hparams.num_beams,
-                length_penalty=self.hparams.length_penalty,
-                early_stopping=self.hparams.early_stopping,
-                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences,
-                num_beam_groups=self.hparams.num_beam_groups, 
-                diversity_penalty=self.hparams.diversity_penalty, 
-                **additional_kwargs
-            )
-            hyps = [self.trg_toker.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in output]
-            if self.hparams.num_beam_groups > 1:
-                hyps = [hyps[i] for i in range(len(hyps)) if i % int(self.hparams.num_beams/self.hparams.num_beam_groups) == 0]
-        return hyps
-
-
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()

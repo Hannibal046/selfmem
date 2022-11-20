@@ -153,6 +153,7 @@ class ConditionalGenerator(LightningModule):
         super().__init__()
         
         self.save_hyperparameters()
+        self.print(self.hparams)
         self.configure_model()
         self.loss_fct = LabelSmoother()
         self.collate_fct = partial(collate_fct,
@@ -337,7 +338,7 @@ class ConditionalGenerator(LightningModule):
                 num_beams=self.hparams.num_beams,
                 length_penalty=self.hparams.length_penalty,
                 early_stopping=self.hparams.early_stopping,
-                num_return_sequences=self.hparams.num_return_sequences, 
+                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences,
                 num_beam_groups=self.hparams.num_beam_groups, 
                 diversity_penalty=self.hparams.diversity_penalty,
                 top_p=self.hparams.top_p,
@@ -345,7 +346,7 @@ class ConditionalGenerator(LightningModule):
                 **additional_kwargs
             )
             hyps = [self.trg_toker.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in output]
-            if self.hparams.num_return_sequences > 1:
+            if self.hparams.num_beam_groups is not None and self.hparams.num_beam_groups > 1:
                 num_return_candidates = int(self.hparams.num_return_sequences/self.hparams.num_beam_groups)
                 hyps = [hyps[i] for i in range(len(hyps)) if i % num_return_candidates == 0]
         return hyps
