@@ -1,7 +1,7 @@
 ## path
-data_dir: ../data/samsum
+data_dir: ../data/xsum
 pretrained_model_path: ../pretrained_model/pegasus_xsum
-default_root_dir: ../results/finetune_xsum
+default_root_dir: null
 memory_dir: null
 memory_encoding: concate
 src: document
