@@ -344,3 +344,29 @@ def get_json_dir(file_dir):
     files = [os.path.join(file_dir,x) for x in os.listdir(file_dir)]
     files.sort(key=lambda x:int(x.split("/")[-1].split(".")[0]))
     return [json.load(open(x)) for x in files]
+
+
+def evaluate_candidates(candidates,refs):
+    from metrics_utils import get_rouge_score
+    assert len(candidates) % len(refs) == 0
+    num_candidates = int(len(candidates)/len(refs))
+    candidates = split_list(candidates,num_candidates)
+    ## random
+    from random import choice
+    random_results = []
+    for _ in range(5):
+        random_results.append(get_rouge_score([choice(x) for x in candidates],refs))
+    r1 = [x[0] for x in random_results]
+    r2 = [x[1] for x in random_results]
+    rl = [x[2] for x in random_results]
+    print(f"random=({sum(r1)/len(r1)},{sum(r2)/len(r2)},{sum(rl)/len(rl)})")
+    ## best and worst
+    best_hyps = []
+    worst_hyps = []
+    for ref,candidate_ls in zip(refs,candidates):
+        candidate_ls = [[candidate,get_rouge_score([candidate],[ref])[0]] for candidate in candidate_ls]
+        candidate_ls.sort(key=lambda x:float(x[1]))
+        best_hyps.append(candidate_ls[-1][0])
+        worst_hyps.append(candidate_ls[0][0])
+    print(f"best={get_rouge_score(best_hyps,refs)}")
+    print(f"worst={get_rouge_score(worst_hyps,refs)}")
