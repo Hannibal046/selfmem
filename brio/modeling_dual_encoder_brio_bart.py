@@ -116,3 +116,4 @@ class BrioDualEncoderBartModel(DualEncoderBartModel):
             encoder_hidden_states=None,
             encoder_attentions=None,
         )
+    

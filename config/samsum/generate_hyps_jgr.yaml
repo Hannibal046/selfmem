@@ -22,3 +22,5 @@ length_penalty: 1.0
 do_sample: true
 top_p: 1.0
 temperature: 1.0
+num_return_sequences: 16
+# num_beams: 16

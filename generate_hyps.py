@@ -1,4 +1,4 @@
-import json,os,time,argparse,warnings,time
+import json,os,time,argparse,warnings,time,yaml
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 # os.environ['CUDA_VISIBLE_DEVICES']='1'
@@ -79,30 +79,32 @@ class Generator(ConditionalGenerator):
         parser.add_argument('--data_path', )
         parser.add_argument('--memory_path')
         parser.add_argument('--output_path')
+        parser.add_argument('--config_path')
         parser.add_argument('--memory_encoding')
         parser.add_argument('--src', )
         parser.add_argument('--trg', )
-        parser.add_argument('--train_max_src_len',)
-        parser.add_argument('--train_max_trg_len',)
+        parser.add_argument('--train_max_src_len',type=int)
+        parser.add_argument('--train_max_trg_len',type=int)
         ## model
         parser.add_argument('--pretrained_model_path',)
         ## generation
-        parser.add_argument('--num_return_sequences')
-        parser.add_argument('--num_beam_groups')
-        parser.add_argument('--num_beams')
-        parser.add_argument('--length_penalty')
-        parser.add_argument('--diversity_penalty')
-        parser.add_argument('--gen_max_len')
-        parser.add_argument('--gen_min_len')
-        parser.add_argument('--no_repeat_ngram_size')
-        parser.add_argument('--early_stopping')
-        parser.add_argument('--top_p')
-        parser.add_argument('--temperature')
-        parser.add_argument('--do_sample')
+        parser.add_argument('--num_return_sequences',type=int)
+        parser.add_argument('--num_beam_groups',type=int)
+        parser.add_argument('--num_beams',type=int)
+        parser.add_argument('--length_penalty',type=float)
+        parser.add_argument('--diversity_penalty',type=float)
+        parser.add_argument('--gen_max_len',type=int)
+        parser.add_argument('--gen_min_len',type=int)
+        parser.add_argument('--no_repeat_ngram_size',type=int)
+        parser.add_argument('--early_stopping',type=bool)
+        parser.add_argument('--top_p',type=float)
+        parser.add_argument('--temperature',type=float)
+        parser.add_argument('--do_sample',type=bool)
         ## training_parameters
-        parser.add_argument('--per_device_eval_batch_size',)
-        parser.add_argument('--logging_steps')
-        parser.add_argument('--seed')
+        parser.add_argument('--per_device_eval_batch_size',type=int)
+        parser.add_argument('--eval_metrics',default='rouge1')
+        parser.add_argument('--logging_steps',type=int)
+        parser.add_argument('--seed',type=int)
         
         return parent_parser
 
@@ -128,6 +130,9 @@ class Generator(ConditionalGenerator):
         hyps = self.generate(batch)
         return hyps,batch['refs']
     
+    def on_test_start(self) -> None:
+        self.print(self.hparams)
+
     def test_epoch_end(self,outputs):
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
@@ -169,6 +174,10 @@ if __name__ == "__main__":
     parser = pl.Trainer.add_argparse_args(parser)
     parser = Generator.add_model_specific_args(parser)
     args = parser.parse_args()
+    config = yaml.full_load(open(args.config_path))
+    for k,v in config.items():
+        if getattr(args,k) is None:
+            setattr(args,k,v)
     pl.seed_everything(args.seed,workers=True)
     model = Generator(**vars(args))
     strategy = None

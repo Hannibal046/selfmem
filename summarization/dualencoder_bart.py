@@ -439,6 +439,8 @@ class DualEncoderBartModel(BartModel):
             encoder_hidden_states=None,
             encoder_attentions=None,
         )
+
+        
 class DualEncoderBartForConditionalGeneration(BartForConditionalGeneration):
     def __init__(self, config: BartConfig):
         super().__init__(config)
@@ -568,3 +570,32 @@ class DualEncoderBartForConditionalGeneration(BartForConditionalGeneration):
             )
             model_kwargs["encoder_outputs"] = encoder_outputs
         return input_ids, model_kwargs
+
+    def prepare_inputs_for_generation(
+        self,
+        decoder_input_ids,
+        past=None,
+        attention_mask=None,
+        memory_attention_mask=None,
+        head_mask=None,
+        decoder_head_mask=None,
+        cross_attn_head_mask=None,
+        use_cache=None,
+        encoder_outputs=None,
+        **kwargs
+    ):
+        # cut decoder_input_ids if past is used
+        if past is not None:
+            decoder_input_ids = decoder_input_ids[:, -1:]
+        return {
+            "input_ids": None,  # encoder_outputs is defined. input_ids not needed
+            "encoder_outputs": encoder_outputs,
+            "past_key_values": past,
+            "decoder_input_ids": decoder_input_ids,
+            "attention_mask": attention_mask,
+            "memory_attention_mask":memory_attention_mask,
+            "head_mask": head_mask,
+            "decoder_head_mask": decoder_head_mask,
+            "cross_attn_head_mask": cross_attn_head_mask,
+            "use_cache": use_cache,  # change this to avoid caching (presumably for debugging)
+        }

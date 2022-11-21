@@ -332,7 +332,7 @@ class ConditionalGenerator(LightningModule):
             if self.hparams.num_return_sequences is None:
                 num_return_sequences = 1
             else:
-                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences,
+                num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences
             output = self.model.generate(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
@@ -347,6 +347,7 @@ class ConditionalGenerator(LightningModule):
                 diversity_penalty=self.hparams.diversity_penalty,
                 top_p=self.hparams.top_p,
                 temperature=self.hparams.temperature,
+                do_sample=self.hparams.do_sample,
                 **additional_kwargs
             )
             hyps = [self.trg_toker.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in output]
