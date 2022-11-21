@@ -8,10 +8,11 @@ src: document
 trg: summary
 ## training
 max_epochs: 20
-per_device_train_batch_size: 8
-accumulate_grad_batches: 2
+early_stop_patience: 5
+per_device_train_batch_size: 32
+accumulate_grad_batches: 1
 per_device_eval_batch_size: 12
-lr: 2.0e-3
+lr: 4.0e-3
 warmup_steps: 10000
 accelerator: gpu
 val_check_interval: 0.5

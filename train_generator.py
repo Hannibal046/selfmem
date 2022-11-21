@@ -25,6 +25,7 @@ from transformers import (
 from utils.utils import (
     LabelSmoother,
     get_remain_time,
+    get_gpu_usage,
 )
 from utils.metrics_utils import (
     get_rouge_score,
@@ -275,8 +276,6 @@ class ConditionalGenerator(LightningModule):
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.trg_toker.save_pretrained(os.path.join(self.trainer.log_dir,'best_ckpt_huggingface/trg_toker'))
     
     def validation_epoch_end(self,outputs):
         if self.hparams.do_generation:
@@ -292,6 +291,9 @@ class ConditionalGenerator(LightningModule):
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
         self.print(self.hparams)
+        if self.trainer.is_global_zero:
+            model_type = os.path.basename(self.hparams.pretrained_model_path)
+            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')) ## save here because weird problem on cluster
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
@@ -299,6 +301,7 @@ class ConditionalGenerator(LightningModule):
             msg += f"[{self.trainer.current_epoch}|{self.trainer.max_epochs}] "
             msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
             msg += f"Loss:{sum(self.losses)/len(self.losses):.4f} "
+            msg += f"GPU Mem:{get_gpu_usage()} "
             self.losses = []
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
@@ -365,8 +368,6 @@ class ConditionalGenerator(LightningModule):
         for idx in range(num_data_per_rank):
             output.extend([all_rank_outputs[i] for i in range(idx,len(all_rank_outputs),num_data_per_rank)])
         return output
-
-   
             
     def load_data(self,_split):
         """

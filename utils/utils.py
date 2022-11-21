@@ -370,3 +370,11 @@ def evaluate_candidates(candidates,refs):
         worst_hyps.append(candidate_ls[0][0])
     print(f"best={get_rouge_score(best_hyps,refs)}")
     print(f"worst={get_rouge_score(worst_hyps,refs)}")
+
+
+def get_gpu_usage():
+    import pynvml
+    pynvml.nvmlInit()
+    handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+    meminfo = pynvml.nvmlDeviceGetMemoryInfo(handle)
+    return meminfo.used / 1024**2
