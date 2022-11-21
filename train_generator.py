@@ -81,8 +81,7 @@ def collate_fct(samples,src_toker,trg_toker,max_src_len,max_trg_len,memory_encod
     else:
         memory = [d['memory'] for d in samples]
         if memory_encoding == 'concate':
-            src = [[s,src_toker.eos_token + mem] for s,mem in zip(src,memory)]
-            tokenized_src = src_toker(src,return_tensors='pt',padding=True,truncation=True,max_length=max_src_len,return_attention_mask=True)
+            tokenized_src = src_toker(src,memory,return_tensors='pt',padding=True,truncation='only_first',max_length=max_src_len,return_attention_mask=True)
             return {
                 "input_ids":tokenized_src['input_ids'],
                 "attention_mask":tokenized_src['attention_mask'],

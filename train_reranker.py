@@ -64,9 +64,10 @@ def collate_fct(samples,toker,max_length,src='document',trg='summary',num_candid
     trg = [d[trg] for d in samples]
     candidates = [d['candidates'] for d in samples]
     for idx in range(len(candidates)):
-        candidates[idx].sort(key=lambda x:x[1],reverse=True)
-        if num_candidates is not None and is_training:
-            candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
+        if is_training:
+            candidates[idx].sort(key=lambda x:x[1],reverse=True)
+            if num_candidates is not None:
+                candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
         candidates[idx] = [x[0] for x in candidates[idx]]
         num_candidates = len(candidates[idx])
     flattened_candidates = [x for y in candidates for x in y]
@@ -164,12 +165,11 @@ class SingleTowerRankingModel(LightningModule):
             )
         logits = model_output.logits.view(batch_size,num_candidates)
 
-        
         contrastive_loss = self.contrastive_loss_fct(logits)
         self.contrastive_losses.append(contrastive_loss)
 
         total_loss = contrastive_loss
-        self.total_losses.append(total_loss)
+        self.total_losses.append(total_loss.item())
         
         batch['refs']=refs
         batch['candidates']=candidates
@@ -178,7 +178,7 @@ class SingleTowerRankingModel(LightningModule):
 
     def training_step(self,batch,batch_idx):
         loss = self.get_ranking_loss(batch)
-        self.log("train_loss",loss,on_step=True,on_epoch=True,batch_size=batch['input_ids'].shape[0])
+        self.log("train_loss",loss.item())
         return loss
     
     def test_step(self, batch, batch_idx):
@@ -230,18 +230,17 @@ class SingleTowerRankingModel(LightningModule):
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.trg_toker.save_pretrained(os.path.join(self.trainer.log_dir,'best_ckpt_huggingface/trg_toker'))
     
     def validation_epoch_end(self,outputs):
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
         self.eval_generation(hyps,refs,'valid')
-        
 
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
+        model_type = os.path.basename(self.hparams.pretrained_model_path)
+        self.toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
         self.print(self.hparams)
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
@@ -251,10 +250,6 @@ class SingleTowerRankingModel(LightningModule):
             msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
             msg += f"Total Loss:{sum(self.total_losses)/len(self.total_losses):.4f} "
             self.total_losses = []
-            # msg += f"Mle Loss:{sum(self.mle_losses)/len(self.mle_losses):.4f} "
-            # self.mle_losses = []
-            # msg += f"Ranking Loss:{sum(self.ranking_losses)/len(self.ranking_losses):.4f} "
-            # self.ranking_losses = []
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
             if 'valid_rouge1' in self.trainer.callback_metrics.keys():
@@ -275,16 +270,6 @@ class SingleTowerRankingModel(LightningModule):
                     "interval": "step",
                     },
                 }
-
-    @staticmethod
-    def reorder_ddp(all_rank_outputs):
-        ## this function can only do with only 1 hyp
-        rank_cnt = dist.get_world_size()
-        num_data_per_rank = int(len(all_rank_outputs)/rank_cnt)
-        output = []
-        for idx in range(num_data_per_rank):
-            output.extend([all_rank_outputs[i] for i in range(idx,len(all_rank_outputs),num_data_per_rank)])
-        return output
     
     def load_data(self,_split):
 
