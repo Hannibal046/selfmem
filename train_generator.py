@@ -225,7 +225,7 @@ class ConditionalGenerator(LightningModule):
 
     def training_step(self,batch,batch_idx):
         loss = self.get_mle_loss(batch,'fit')
-        self.losses.append(loss.item())
+        self.losses.append(loss.detach())
         self.log("train_loss",loss,on_step=True)
         return loss
     
@@ -264,7 +264,7 @@ class ConditionalGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
-        if self.logger:self.log("v_num",self.logger.version[-4:])
+        if self.logger:self.log("v_num",self.logger.version)
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
