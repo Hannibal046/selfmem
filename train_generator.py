@@ -282,7 +282,9 @@ class ConditionalGenerator(LightningModule):
                 with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
+            shutil.copytree(self.hparams.pretrained_model_path,os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            
     
     def validation_epoch_end(self,outputs):
         if self.hparams.do_generation:
@@ -298,10 +300,6 @@ class ConditionalGenerator(LightningModule):
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
         self.print(self.hparams)
-        if self.trainer.is_global_zero:
-            model_type = os.path.basename(self.hparams.pretrained_model_path)
-            shutil.copytree(self.hparams.pretrained_model_path,os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')) ## save here because weird problem on cluster
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
