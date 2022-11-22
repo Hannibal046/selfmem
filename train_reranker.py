@@ -39,11 +39,7 @@ from utils.optim_utils import (
 
 class MemoryDataset(torch.utils.data.Dataset):
 
-    def __init__(
-        self,
-        data,
-        memory=None,
-        ):
+    def __init__(self,data,memory=None,):
         super().__init__()
         self.data = data
         if memory is not None:
@@ -95,18 +91,18 @@ class SingleTowerRankingModel(LightningModule):
         parser.add_argument('--candidate_dir',)
         parser.add_argument('--src')
         parser.add_argument('--trg')
-        parser.add_argument('--max_length', )
+        parser.add_argument('--max_length', type=int)
         parser.add_argument('--pretrained_model_path')
-        parser.add_argument("--temperature")
-        parser.add_argument('--lr')
-        parser.add_argument('--warmup_steps',)
-        parser.add_argument('--weight_decay',)
-        parser.add_argument('--per_device_train_batch_size')
-        parser.add_argument("--num_candidates")
-        parser.add_argument('--per_device_eval_batch_size')
-        parser.add_argument('--logging_steps')
+        parser.add_argument("--temperature",type=float)
+        parser.add_argument('--lr',type=float)
+        parser.add_argument('--warmup_steps',type=int)
+        parser.add_argument('--weight_decay',type=float)
+        parser.add_argument('--per_device_train_batch_size',type=int)
+        parser.add_argument("--num_candidates",type=int)
+        parser.add_argument('--per_device_eval_batch_size',type=int)
+        parser.add_argument('--logging_steps',type=int)
         parser.add_argument('--eval_metrics')
-        parser.add_argument('--seed')
+        parser.add_argument('--seed',type=int)
         
         return parent_parser
     
@@ -121,7 +117,7 @@ class SingleTowerRankingModel(LightningModule):
                                   src = self.hparams.src,trg = self.hparams.trg,
                                   num_candidates=self.hparams.num_candidates,
                                   is_training=True)
-        self.test_collate_fct = partial(self.train_collate_fct,is_training=True)
+        self.test_collate_fct = partial(self.train_collate_fct,is_training=False)
         
         self.contrastive_losses = []
         self.total_losses = []
@@ -164,9 +160,9 @@ class SingleTowerRankingModel(LightningModule):
             token_type_ids = batch['token_type_ids'] if 'token_type_ids' in batch else None,
             )
         logits = model_output.logits.view(batch_size,num_candidates)
-
+        self.current_logits = logits
         contrastive_loss = self.contrastive_loss_fct(logits)
-        self.contrastive_losses.append(contrastive_loss)
+        # self.contrastive_losses.append(contrastive_loss)
 
         total_loss = contrastive_loss
         self.total_losses.append(total_loss.item())
@@ -217,17 +213,17 @@ class SingleTowerRankingModel(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
+        if self.logger:self.log("v_num",self.logger.version[-4:])
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
         self.eval_generation(hyps,refs,'test')
 
         if self.trainer.is_global_zero:
-            if self.hparams.do_generation:
-                with open(os.path.join(self.trainer.log_dir,'test_hyps.txt'),'w') as f:
-                    for h in hyps[:self.test_data_cnt]:f.write(h.replace("\n"," ")+"\n")
-                with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
-                    for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
+            with open(os.path.join(self.trainer.log_dir,'test_hyps.txt'),'w') as f:
+                for h in hyps[:self.test_data_cnt]:f.write(h.replace("\n"," ")+"\n")
+            with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
+                for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
     
@@ -246,12 +242,13 @@ class SingleTowerRankingModel(LightningModule):
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step !=0:
             msg  = f"{time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))} "
-            msg += f"[{self.trainer.current_epoch}|{self.trainer.max_epochs}] "
+            msg += f"[{self.trainer.current_epoch+1}|{self.trainer.max_epochs}] "
             msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
             msg += f"Total Loss:{sum(self.total_losses)/len(self.total_losses):.4f} "
             self.total_losses = []
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
+            msg += f"current_logits:{self.current_logits[:2]} "
             if 'valid_rouge1' in self.trainer.callback_metrics.keys():
                 msg += f"valid_rouge1:{self.trainer.callback_metrics['valid_rouge1']:.4f} "
             if 'valid_ppl' in self.trainer.callback_metrics.keys():

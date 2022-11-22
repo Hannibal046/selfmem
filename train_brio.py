@@ -292,6 +292,7 @@ class BrioGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
+        if self.logger:self.log("v_num",self.logger.version[-4:])
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]

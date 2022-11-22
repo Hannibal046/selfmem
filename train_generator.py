@@ -1,6 +1,7 @@
 import json,os,time,argparse,warnings,time,yaml
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["CUDA_VISIBLE_DEVICES"]='0'
 ## torch
 import torch
 import torch.distributed as dist
@@ -257,6 +258,7 @@ class ConditionalGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
+        if self.logger:self.log("v_num",self.logger.version[-4:])
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
