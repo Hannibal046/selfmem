@@ -2,12 +2,12 @@ from dataclasses import dataclass
 @dataclass
 class LabelSmoother:
     """copied from huggingface/transformers"""
-    import torch
-    import torch.nn as nn    
     
     ignore_index: int = -100
 
     def __call__(self, logits, labels, shift_labels=False,epsilon: float = 0.1):
+        import torch
+        import torch.nn as nn    
         if shift_labels:
             logits = logits[..., :-1, :].contiguous()
             labels = labels[..., 1:].contiguous()
@@ -50,10 +50,11 @@ def split_list(ls,n):
 from dataclasses import dataclass
 @dataclass
 class bpe:
-    import fastBPE
+    
     bpe_code_path:str=None
 
     def __post_init__(self):
+        import fastBPE
         self.bper = fastBPE.fastBPE(self.bpe_code_path)
     def __call__(self,x):
         return self.bper.apply([x])[0]
