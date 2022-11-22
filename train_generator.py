@@ -1,6 +1,6 @@
 import json,os,time,argparse,warnings,time,yaml
 from functools import partial
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["TRANSFORMERS_CACHE"] = "/tmp"
 os.environ["MPLCONFIGDIR"] = "/tmp"
 ## torch
