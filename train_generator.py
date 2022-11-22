@@ -22,6 +22,7 @@ from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
     Adafactor,
+    BartTokenizer,
 )
 ## own
 from utils.utils import (
@@ -172,7 +173,8 @@ class ConditionalGenerator(LightningModule):
 
     def configure_model(self):
         ## tokenizer
-        self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        # self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        self.src_toker = BartTokenizer.from_pretrained(self.hparams.pretrained_model_path)
         self.trg_toker = self.src_toker ## to be compatible with NMT task
         self.vocab_size = self.trg_toker.vocab_size
         ## model
