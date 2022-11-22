@@ -1,9 +1,9 @@
 from dataclasses import dataclass
-import torch
-import torch.nn as nn
 @dataclass
 class LabelSmoother:
     """copied from huggingface/transformers"""
+    import torch
+    import torch.nn as nn    
     
     ignore_index: int = -100
 
@@ -46,11 +46,13 @@ def split_list(ls,n):
     return [ls[idx:idx+n] for idx in range(0,len(ls),n)]
 
 
-import fastBPE
+
 from dataclasses import dataclass
 @dataclass
 class bpe:
+    import fastBPE
     bpe_code_path:str=None
+
     def __post_init__(self):
         self.bper = fastBPE.fastBPE(self.bpe_code_path)
     def __call__(self,x):
