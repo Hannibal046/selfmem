@@ -284,6 +284,7 @@ class ConditionalGenerator(LightningModule):
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             ## because toker.save_pretrained method is problematic, so we manually copy toker file
             print(os.listdir(self.hparams.pretrained_model_path))
+            os.makedirs(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
             for file in os.listdir(self.hparams.pretrained_model_path):
                 if file != 'pytorch_model.bin':
                     shutil.copy(os.path.join(self.hparams.pretrained_model_path,file),os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
