@@ -4,6 +4,7 @@ memory_path: null
 output_path: null
 memory_encoding: null
 pretrained_model_path: null
+default_root_dir: /tmp
 src: document
 trg: summary
 ## training
