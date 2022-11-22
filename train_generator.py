@@ -224,8 +224,11 @@ class ConditionalGenerator(LightningModule):
     def training_step(self,batch,batch_idx):
         loss = self.get_mle_loss(batch,'fit')
         self.losses.append(loss.item())
-        self.log("train_loss",loss,on_step=True,on_epoch=True,batch_size=batch['input_ids'].shape[0])
+        self.log("train_loss",loss,on_step=True)
         return loss
+    
+    def training_step_end(self, step_output):
+        print(self.local_rank,step_output)
     
     def test_step(self, batch, batch_idx):
         mle_loss = self.get_mle_loss(batch,'test').item()
