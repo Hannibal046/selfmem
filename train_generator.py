@@ -282,7 +282,10 @@ class ConditionalGenerator(LightningModule):
                 with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
-            shutil.copytree(self.hparams.pretrained_model_path,os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            ## because toker.save_pretrained method is problematic, so we manually copy toker file
+            for file in os.listdir(self.hparams.pretrained_model_path):
+                if file != 'pytorch_model.bin':
+                    shutil.copy(os.path.join(self.hparams.pretrained_model_path,file),os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             
     
