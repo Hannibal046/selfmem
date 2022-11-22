@@ -1,7 +1,6 @@
 import json,os,time,argparse,warnings,time,yaml
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["CUDA_VISIBLE_DEVICES"]='0'
 ## torch
 import torch
 import torch.distributed as dist
