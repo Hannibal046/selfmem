@@ -1,8 +1,8 @@
-import json,os,time,argparse,warnings,time,yaml
+import json,os,time,argparse,warnings,time,yaml,shutil
 from functools import partial
-# os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["TRANSFORMERS_CACHE"] = "/tmp"
-os.environ["MPLCONFIGDIR"] = "/tmp"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+# os.environ["TRANSFORMERS_CACHE"] = "/tmp"
+# os.environ["MPLCONFIGDIR"] = "/tmp"
 ## torch
 import torch
 import torch.distributed as dist
@@ -173,8 +173,8 @@ class ConditionalGenerator(LightningModule):
 
     def configure_model(self):
         ## tokenizer
-        # self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
-        self.src_toker = BartTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        # self.src_toker = BartTokenizer.from_pretrained(self.hparams.pretrained_model_path)
         self.trg_toker = self.src_toker ## to be compatible with NMT task
         self.vocab_size = self.trg_toker.vocab_size
         ## model
@@ -229,8 +229,8 @@ class ConditionalGenerator(LightningModule):
         self.log("train_loss",loss,on_step=True)
         return loss
     
-    def training_step_end(self, step_output):
-        print(self.local_rank,step_output)
+    # def training_step_end(self, step_output):
+    #     print(self.local_rank,step_output)
     
     def test_step(self, batch, batch_idx):
         mle_loss = self.get_mle_loss(batch,'test').item()
@@ -300,7 +300,8 @@ class ConditionalGenerator(LightningModule):
         self.print(self.hparams)
         if self.trainer.is_global_zero:
             model_type = os.path.basename(self.hparams.pretrained_model_path)
-            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')) ## save here because weird problem on cluster
+            # shutil.copytree(self.hparams.pretrained_model_path,os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            # self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')) ## save here because weird problem on cluster
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
