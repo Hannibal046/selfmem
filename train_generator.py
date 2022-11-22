@@ -407,17 +407,17 @@ class ConditionalGenerator(LightningModule):
     def train_dataloader(self):
         return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.hparams.per_device_train_batch_size,
                                            shuffle=True,collate_fn=self.collate_fct,
-                                           num_workers=8, pin_memory=True)
+                                           num_workers=0, pin_memory=True)
     
     def val_dataloader(self):
         return torch.utils.data.DataLoader(self.valid_dataset, batch_size=self.hparams.per_device_eval_batch_size,
                                            shuffle=False,collate_fn=self.collate_fct,
-                                           num_workers=8, pin_memory=True)
+                                           num_workers=0, pin_memory=True)
     
     def test_dataloader(self):
         return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.hparams.per_device_eval_batch_size,
                                            shuffle=False,collate_fn=self.collate_fct,
-                                           num_workers=8, pin_memory=True)
+                                           num_workers=0, pin_memory=True)
 
 
 
