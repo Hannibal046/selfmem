@@ -319,7 +319,7 @@ class ConditionalGenerator(LightningModule):
             self.print(msg)
 
     def configure_optimizers(self):
-        optimizer = Adafactor(self.parameters(), scale_parameter=False, relative_step=False, warmup_init=False, lr=self.hparams.lr)
+        optimizer = Adafactor(self.model.parameters(), scale_parameter=False, relative_step=False, warmup_init=False, lr=self.hparams.lr)
         lr_scheduler = get_inverse_sqrt_schedule_with_warmup(optimizer, self.hparams.warmup_steps)
         return {
                 "optimizer": optimizer,
