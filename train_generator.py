@@ -263,8 +263,8 @@ class ConditionalGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
-        self.print(f"log_dir:{self.trainer.log_dir}")
-        log_dir = str(self.trainer.log_dir)
+        self.log("v_num",self.logger.version)
+        log_dir = str(self.trainer.log_dir) ## Super Important here to save log_dir 
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
@@ -277,19 +277,12 @@ class ConditionalGenerator(LightningModule):
 
         if self.trainer.is_global_zero:
             if self.hparams.do_generation:
-                with open(os.path.join(self.trainer.log_dir,'test_hyps.txt'),'w') as f:
+                with open(os.path.join(log_dir,'test_hyps.txt'),'w') as f:
                     for h in hyps[:self.test_data_cnt]:f.write(h.replace("\n"," ")+"\n")
-                with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
+                with open(os.path.join(log_dir,'test_refs.txt'),'w') as f:
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
-            ## because toker.save_pretrained method is problematic, so we manually copy toker file
-            # self.print(os.listdir(self.hparams.pretrained_model_path)) 
-            # os.makedirs(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
-            # for file in os.listdir(self.hparams.pretrained_model_path):
-            #     if file != 'pytorch_model.bin':
-            #         self.print(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
-            #         shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
-            self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            self.model.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
             self.src_toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
             
     
@@ -476,12 +469,6 @@ if __name__ == "__main__":
     
     if not args.do_not_train:
         trainer.fit(model)
-        # model_type = os.path.basename(args.pretrained_model_path)
-        # os.makedirs(os.path.join(trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
-        # toker = AutoTokenizer.from_pretrained(args.pretrained_model_path)
-        # toker.save_pretrained(os.path.join(trainer.log_dir,model_type+'_best_ckpt'))
-        # del toker
         trainer.test()
     else:
         trainer.test(model)
-    # trainer.test(model)
