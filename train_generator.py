@@ -286,7 +286,7 @@ class ConditionalGenerator(LightningModule):
             os.makedirs(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
             for file in os.listdir(self.hparams.pretrained_model_path):
                 if file != 'pytorch_model.bin':
-                    self.print(file)
+                    self.print(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
                     shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
             # print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
