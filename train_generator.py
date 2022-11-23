@@ -172,8 +172,8 @@ class ConditionalGenerator(LightningModule):
 
     def configure_model(self):
         ## tokenizer
-        self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
-        # self.src_toker = BartTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        # self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        self.src_toker = BartTokenizer.from_pretrained(self.hparams.pretrained_model_path)
         self.trg_toker = self.src_toker ## to be compatible with NMT task
         self.vocab_size = self.trg_toker.vocab_size
         ## model
@@ -282,15 +282,16 @@ class ConditionalGenerator(LightningModule):
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             ## because toker.save_pretrained method is problematic, so we manually copy toker file
-            self.print(os.listdir(self.hparams.pretrained_model_path)) 
-            os.makedirs(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
-            for file in os.listdir(self.hparams.pretrained_model_path):
-                if file != 'pytorch_model.bin':
-                    self.print(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
-                    shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
-            # print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
+            # self.print(os.listdir(self.hparams.pretrained_model_path)) 
+            # os.makedirs(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
+            # for file in os.listdir(self.hparams.pretrained_model_path):
+            #     if file != 'pytorch_model.bin':
+            #         self.print(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
+            #         shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
+            print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            print("self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
+            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             
     
     def validation_epoch_end(self,outputs):
