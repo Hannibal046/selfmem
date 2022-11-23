@@ -1,8 +1,7 @@
 import json,os,time,argparse,warnings,time,yaml,shutil
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-# os.environ["TRANSFORMERS_CACHE"] = "/tmp"
-# os.environ["MPLCONFIGDIR"] = "/tmp"
+from os import system as shell
 ## torch
 import torch
 import torch.distributed as dist
@@ -264,7 +263,8 @@ class ConditionalGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
-        if self.logger:self.log("v_num",self.logger.version)
+        # if self.logger:self.log("v_num",self.logger.version)
+        self.log(self.trainer.log_dir)
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
@@ -288,7 +288,7 @@ class ConditionalGenerator(LightningModule):
             for file in os.listdir(self.hparams.pretrained_model_path):
                 if file != 'pytorch_model.bin':
                     print(file)
-                    # shutil.copy(os.path.join(self.hparams.pretrained_model_path,file),os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+                    shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
             print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             
