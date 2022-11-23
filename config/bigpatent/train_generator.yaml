@@ -24,6 +24,7 @@ train_max_trg_len: 256
 logging_steps: 100
 eval_metrics: rouge1
 seed: 980406
+enable_progress_bar: false
 ## generation
 gen_max_len: 256
 gen_min_len: 34

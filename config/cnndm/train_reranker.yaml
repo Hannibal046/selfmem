@@ -21,3 +21,4 @@ accumulate_grad_batches: 8
 max_epochs: 20
 early_stop_patience: 5
 precision: 32
+enable_progress_bar: false
