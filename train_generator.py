@@ -469,18 +469,17 @@ if __name__ == "__main__":
         strategy = strategy,
         val_check_interval=args.val_check_interval,
     )
-    
-    model_type = os.path.basename(args.pretrained_model_path)
-    os.makedirs(os.path.join(trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
-    toker = AutoTokenizer.from_pretrained(args.pretrained_model_path)
-    toker.save_pretrained(os.path.join(trainer.log_dir,model_type+'_best_ckpt'))
-    del toker
 
     if args.zero_shot:
         trainer.test(model)
     
     if not args.do_not_train:
         trainer.fit(model)
+        model_type = os.path.basename(args.pretrained_model_path)
+        os.makedirs(os.path.join(trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
+        toker = AutoTokenizer.from_pretrained(args.pretrained_model_path)
+        toker.save_pretrained(os.path.join(trainer.log_dir,model_type+'_best_ckpt'))
+        del toker
         trainer.test()
     else:
         trainer.test(model)
