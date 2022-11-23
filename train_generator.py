@@ -287,9 +287,10 @@ class ConditionalGenerator(LightningModule):
             for file in os.listdir(self.hparams.pretrained_model_path):
                 if file != 'pytorch_model.bin':
                     print(file)
-                    shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
-            print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
+            #         shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
+            # print("self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))")
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
             
     
     def validation_epoch_end(self,outputs):
