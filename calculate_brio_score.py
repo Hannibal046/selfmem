@@ -1,4 +1,5 @@
 from lib import *
+from utils.utils import run_pool
 import argparse
 
 
@@ -6,6 +7,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--refs_path")
 parser.add_argument("--candidates_path")
 parser.add_argument("--output_path",default=None)
+parser.add_argument("--num_workers",default=15,type=int)
 
 args = parser.parse_args()
 
@@ -15,11 +17,12 @@ refs = [x['summary'] for x in get_jsonl(args.refs_path)]
 assert len(candidates)%len(refs)==0,(len(candidates),len(refs))
 
 multiple = int(len(candidates)/len(refs))
-
 refs = [[x]*multiple for x in refs]
 refs = [x for y in refs for x in y]
 
-def cal_score(hyp,ref):
+def cal_score(hyp_ref):
+    hyp = hyp_ref[0]
+    ref = hyp_ref[1]
     r1,r2,rl = get_rouge_score([hyp],[ref])
     if r1+r2 == 0:
         return 0
@@ -27,7 +30,7 @@ def cal_score(hyp,ref):
     # score = (r1+r2+rl)/3
     return score
 
-scores = [cal_score(hyp,ref) for hyp,ref in zip(candidates,refs)]
+scores = run_pool(list(zip(candidates,refs)),cal_score,num_works=args.num_workers,verbose=True)
 
 if args.output_path is None:
     _split = os.path.basename(args.candidates_path).split(".")[0]
