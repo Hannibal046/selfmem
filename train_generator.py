@@ -361,7 +361,7 @@ class ConditionalGenerator(LightningModule):
             )
             hyps = [self.trg_toker.decode(g, skip_special_tokens=True, clean_up_tokenization_spaces=False) for g in output]
             if self.hparams.num_beam_groups is not None and self.hparams.num_beam_groups > 1:
-                num_return_candidates = int(self.hparams.num_return_sequences/self.hparams.num_beam_groups)
+                num_return_candidates = int(num_return_sequences/self.hparams.num_beam_groups)
                 hyps = [hyps[i] for i in range(len(hyps)) if i % num_return_candidates == 0]
         return hyps
 
