@@ -232,7 +232,7 @@ class ConditionalGenerator(LightningModule):
     #     print(self.local_rank,step_output)
     
     def test_step(self, batch, batch_idx):
-        mle_loss = self.get_mle_loss(batch,'test').item()
+        mle_loss = self.get_mle_loss(batch,'test')
 
         if self.hparams.do_generation:
             hyps = self.generate(batch)
@@ -241,7 +241,7 @@ class ConditionalGenerator(LightningModule):
             return (mle_loss,)
 
     def validation_step(self,batch,batch_idx):
-        mle_loss = self.get_mle_loss(batch,'valid').item()
+        mle_loss = self.get_mle_loss(batch,'valid')
 
         if self.hparams.do_generation:
             hyps = self.generate(batch)

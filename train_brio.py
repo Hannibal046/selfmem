@@ -21,7 +21,6 @@ warnings.filterwarnings("ignore", category=PossibleUserWarning)
 from transformers import (
     AutoModelForSeq2SeqLM,
     AutoTokenizer,
-    Adafactor,
 )
 ## own
 from utils.utils import (
@@ -293,6 +292,7 @@ class BrioGenerator(LightningModule):
 
     def test_epoch_end(self,outputs):
         if self.logger:self.log("v_num",self.logger.version)
+        log_dir = str(self.trainer.log_dir) ## Super Important here to save log_dir 
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
@@ -300,14 +300,13 @@ class BrioGenerator(LightningModule):
 
         if self.trainer.is_global_zero:
             if self.hparams.do_generation:
-                with open(os.path.join(self.trainer.log_dir,'test_hyps.txt'),'w') as f:
+                with open(os.path.join(log_dir,'test_hyps.txt'),'w') as f:
                     for h in hyps[:self.test_data_cnt]:f.write(h.replace("\n"," ")+"\n")
-                with open(os.path.join(self.trainer.log_dir,'test_refs.txt'),'w') as f:
+                with open(os.path.join(log_dir,'test_refs.txt'),'w') as f:
                     for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
-            self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.trg_toker.save_pretrained(os.path.join(self.trainer.log_dir,'best_ckpt_huggingface/trg_toker'))
+            self.model.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
+            self.src_toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
     
     def validation_epoch_end(self,outputs):
         hyps,refs = self.merge(outputs)

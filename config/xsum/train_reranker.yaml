@@ -4,7 +4,7 @@ candidate_dir: null
 pretrained_model_path: ../pretrained_model/roberta_large
 src: document
 trg: summary
-
+enable_progress_bar: false
 accelerator: gpu
 num_candidates: 16
 max_length: 512
