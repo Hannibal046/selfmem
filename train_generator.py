@@ -264,6 +264,7 @@ class ConditionalGenerator(LightningModule):
 
     def test_epoch_end(self,outputs):
         self.print(f"log_dir:{self.trainer.log_dir}")
+        log_dir = str(self.trainer.log_dir)
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
@@ -289,7 +290,7 @@ class ConditionalGenerator(LightningModule):
             #         self.print(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
             #         shell(f"cp {os.path.join(self.hparams.pretrained_model_path,file)} {os.path.join(self.trainer.log_dir,model_type+'_best_ckpt')}")
             self.model.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
-            # self.src_toker.save_pretrained(os.path.join(self.trainer.log_dir,model_type+'_best_ckpt'))
+            self.src_toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
             
     
     def validation_epoch_end(self,outputs):
@@ -475,11 +476,11 @@ if __name__ == "__main__":
     
     if not args.do_not_train:
         trainer.fit(model)
-        model_type = os.path.basename(args.pretrained_model_path)
-        os.makedirs(os.path.join(trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
-        toker = AutoTokenizer.from_pretrained(args.pretrained_model_path)
-        toker.save_pretrained(os.path.join(trainer.log_dir,model_type+'_best_ckpt'))
-        del toker
+        # model_type = os.path.basename(args.pretrained_model_path)
+        # os.makedirs(os.path.join(trainer.log_dir,model_type+'_best_ckpt'),exist_ok=True)
+        # toker = AutoTokenizer.from_pretrained(args.pretrained_model_path)
+        # toker.save_pretrained(os.path.join(trainer.log_dir,model_type+'_best_ckpt'))
+        # del toker
         trainer.test()
     else:
         trainer.test(model)
