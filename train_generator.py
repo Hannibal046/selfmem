@@ -263,8 +263,7 @@ class ConditionalGenerator(LightningModule):
         return ret
 
     def test_epoch_end(self,outputs):
-        # if self.logger:self.log("v_num",self.logger.version)
-        self.log(self.trainer.log_dir)
+        self.print(f"log_dir:{self.trainer.log_dir}")
         if self.hparams.do_generation:
             hyps,refs,loss = self.merge(outputs)
             hyps = [x for y in hyps for x in y]
