@@ -32,6 +32,8 @@ from utils.utils import (
 from utils.metrics_utils import (
     get_rouge_score,
     get_bleu_score,
+    get_nltk_bleu_score,
+    get_distinct_score,
 )
 from utils.optim_utils import (
     get_inverse_sqrt_schedule_with_warmup
@@ -190,6 +192,8 @@ class ConditionalGenerator(LightningModule):
         else:
             ## vanilla seq2seq
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.hparams.pretrained_model_path)
+        
+        self.model.resize_token_embeddings(len(self.trg_toker))
 
     def eval_generation(self,hyps,refs,stage='valid'):
         if stage == 'valid':
@@ -200,10 +204,24 @@ class ConditionalGenerator(LightningModule):
         refs = refs[:cnt]
         r1,r2,rl = get_rouge_score(hyps,refs)
         bleu = get_bleu_score(hyps,refs)
-        self.log(stage+"_rouge1",r1)
-        self.log(stage+"_rouge2",r2)
-        self.log(stage+"_rougeL",rl)
-        self.log(stage+"_bleu",bleu)
+        bleu_1,bleu_2,bleu_3,bleu_4 = get_nltk_bleu_score(hyps,refs)
+        distinct_1,distinct_2 = get_distinct_score(hyps)
+
+        metrics_dict = {
+                stage+"_rouge1":r1,
+                stage+"_rouge2":r2,
+                stage+"_rougeL":rl,
+                stage+"_bleu":bleu,
+                stage+"_bleu1":bleu_1,
+                stage+"_bleu2":bleu_2,
+                stage+"_bleu3":bleu_3,
+                stage+"_bleu4":bleu_4,
+                stage+"_distinct_1":distinct_1,
+                stage+"_distinct_2":distinct_2,
+            }
+        self.log_dict(metrics_dict)
+        self.print(json.dumps(metrics_dict,indent=4))
+
 
     def get_mle_loss(self,batch,stage='fit'):
 
@@ -311,12 +329,8 @@ class ConditionalGenerator(LightningModule):
             self.losses = []
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
-            if 'valid_rouge1' in self.trainer.callback_metrics.keys():
-                msg += f"valid_rouge1:{self.trainer.callback_metrics['valid_rouge1']:.4f} "
-            if 'valid_ppl' in self.trainer.callback_metrics.keys():
-                msg += f"valid_ppl:{self.trainer.callback_metrics['valid_ppl']:.4f} "
-            if 'valid_bleu' in self.trainer.callback_metrics.keys():
-                msg += f"valid_bleu:{self.trainer.callback_metrics['valid_bleu']:.4f} "
+            if 'valid_'+self.hparams.eval_metrics in self.trainer.callback_metrics.keys():
+                msg += f"valid_{self.hparams.eval_metrics}:{self.trainer.callback_metrics['valid_'+self.hparams.eval_metrics]:.4f} "
             self.print(msg)
 
     def configure_optimizers(self):
@@ -391,6 +405,22 @@ class ConditionalGenerator(LightningModule):
         if self.hparams.memory_dir is not None:
             mem_path = os.path.join(self.hparams.memory_dir,_split+".txt")
             memory = [x.strip() for x in open(mem_path).readlines()]
+        
+        ## dialog data
+        if 'context' in data[0].keys():
+            special_tokens_dict = {'additional_special_tokens': ["[EOU]"]}
+            self.src_toker.add_special_tokens(special_tokens_dict)
+            self.vocab_size = len(self.src_toker)
+            self.model.resize_token_embeddings(len(self.src_toker))
+            for idx in range(len(data)):
+                data[idx]['context'] = " [EOU] ".join(data[idx]['context'])
+            
+            ## persona feature
+            if 'persona' in data[0].keys():
+                for idx in range(len(data)):
+                    persona = " [EOU] ".join(data[idx]['persona'])
+                    data[idx]['context'] = persona + " [EOU] " + data[idx]['context']
+
         dataset = MemoryDataset(
             data = data,
             memory = memory,

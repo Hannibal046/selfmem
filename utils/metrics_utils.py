@@ -151,3 +151,36 @@ def get_ndcg_score(relevance_score,true_relevance):
     relevance_score = np.asarray([[3, 2, 0, 0, 1]])
     """
     return ndcg_score(np.asarray([true_relevance]),np.asarray([relevance_score]))
+
+
+def get_distinct_score(hypothesis):
+    '''
+    compute distinct metric
+    :param hypothesis: list of str
+    :return:
+    '''
+    from collections import Counter
+    from nltk import ngrams
+    unigram_counter, bigram_counter = Counter(), Counter()
+    for hypo in hypothesis:
+        tokens = hypo.split()
+        unigram_counter.update(tokens)
+        bigram_counter.update(ngrams(tokens, 2))
+
+    distinct_1 = len(unigram_counter) / sum(unigram_counter.values())
+    distinct_2 = len(bigram_counter) / sum(bigram_counter.values())
+    return distinct_1, distinct_2
+    
+
+def get_nltk_bleu_score(hypothesis, references):
+    from nltk.translate.bleu_score import corpus_bleu
+    from nltk.translate import bleu_score as nltkbleu
+    hypothesis = hypothesis.copy()
+    references = references.copy()
+    hypothesis = [hyp.split() for hyp in hypothesis]
+    references = [[ref.split()] for ref in references]
+    b1 = corpus_bleu(references, hypothesis, weights=(1.0/1.0,), smoothing_function=nltkbleu.SmoothingFunction(epsilon=1e-12).method1)
+    b2 = corpus_bleu(references, hypothesis, weights=(1.0/2.0, 1.0/2.0), smoothing_function=nltkbleu.SmoothingFunction(epsilon=1e-12).method1)
+    b3 = corpus_bleu(references, hypothesis, weights=(1.0/3.0, 1.0/3.0, 1.0/3.0), smoothing_function=nltkbleu.SmoothingFunction(epsilon=1e-12).method1)
+    b4 = corpus_bleu(references, hypothesis, weights=(1.0/4.0, 1.0/4.0, 1.0/4.0, 1.0/4.0), smoothing_function=nltkbleu.SmoothingFunction(epsilon=1e-12).method1)
+    return (b1, b2, b3, b4)
