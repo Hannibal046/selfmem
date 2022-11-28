@@ -350,7 +350,7 @@ def get_json_dir(file_dir):
 
 
 def evaluate_candidates(candidates,refs):
-    from metrics_utils import get_rouge_score
+    from .metrics_utils import get_rouge_score
     assert len(candidates) % len(refs) == 0
     num_candidates = int(len(candidates)/len(refs))
     candidates = split_list(candidates,num_candidates)

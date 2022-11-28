@@ -23,6 +23,7 @@ train_max_trg_len: 120
 logging_steps: 100
 eval_metrics: rouge1
 seed: 980406
+logging_steps: 100
 ## brio
 margin: 0.001
 gold_margin: 0

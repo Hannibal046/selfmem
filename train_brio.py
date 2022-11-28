@@ -31,6 +31,8 @@ from utils.utils import (
 from utils.metrics_utils import (
     get_rouge_score,
     get_bleu_score,
+    get_nltk_bleu_score,
+    get_distinct_score,
 )
 from utils.optim_utils import (
     get_inverse_sqrt_schedule_with_warmup
@@ -92,13 +94,14 @@ def collate_fct(samples,src_toker,trg_toker,max_src_len,max_trg_len,memory_encod
             }
 
     else:
-        memory = [d['memory'] for d in samples]
+        memory_splitter = " <MEMORY_SPLITTER> "
+        memory = [memory_splitter + d['memory'] for d in samples]
         if memory_encoding == 'concate':
-            src = [[s,src_toker.eos_token + mem] for s,mem in zip(src,memory)]
-            tokenized_src = src_toker(src,return_tensors='pt',padding=True,truncation=True,max_length=max_src_len,return_attention_mask=True)
+            tokenized_memory = src_toker(memory,return_tensors='pt',padding=True,truncation=True,max_length=max_trg_len+2,return_attention_mask=True)
+            tokenized_src = src_toker(memory,return_tensors='pt',padding=True,truncation=True,max_length=(max_src_len-max_trg_len-2),return_attention_mask=True)
             return {
-                "input_ids":tokenized_src['input_ids'],
-                "attention_mask":tokenized_src['attention_mask'],
+                "input_ids":torch.cat((tokenized_src['input_ids'],tokenized_memory['input_ids']),dim=1),
+                "attention_mask":torch.cat((tokenized_src['attention_mask'],tokenized_memory['attention_mask']),dim=1),
                 'labels':tokenized_trg['input_ids'],
                 "refs":trg,
                 }
@@ -128,19 +131,19 @@ class BrioGenerator(LightningModule):
         parser.add_argument('--memory_encoding')
         parser.add_argument('--src')
         parser.add_argument('--trg')
-        parser.add_argument('--train_max_src_len', )
-        parser.add_argument('--train_max_trg_len', )
+        parser.add_argument('--train_max_src_len',type=int)
+        parser.add_argument('--train_max_trg_len',type=int)
         ## model
         parser.add_argument('--pretrained_model_path')
         ## generation
-        parser.add_argument('--num_return_sequences')
-        parser.add_argument('--num_beam_groups')
-        parser.add_argument('--num_beams')
-        parser.add_argument('--length_penalty')
-        parser.add_argument('--diversity_penalty')
-        parser.add_argument('--gen_max_len')
-        parser.add_argument('--gen_min_len')
-        parser.add_argument('--no_repeat_ngram_size')
+        parser.add_argument('--num_return_sequences',type=int)
+        parser.add_argument('--num_beam_groups',type=int)
+        parser.add_argument('--num_beams',type=int)
+        parser.add_argument('--length_penalty', type=float)
+        parser.add_argument('--diversity_penalty', type=float)
+        parser.add_argument('--gen_max_len',type=int)
+        parser.add_argument('--gen_min_len',type=int)
+        parser.add_argument('--no_repeat_ngram_size',type=int)
         parser.add_argument('--early_stopping')
         ## brio parameters
         parser.add_argument('--adding', type=float)
@@ -152,15 +155,16 @@ class BrioGenerator(LightningModule):
         parser.add_argument('--no_gold', action='store_true')
         parser.add_argument('--no_cand', action='store_true')
         parser.add_argument('--scale', type=float)
-        parser.add_argument('--lr')
-        parser.add_argument('--warmup_steps',)
-        parser.add_argument('--weight_decay',)
-        parser.add_argument('--label_smoothing_factor')
-        parser.add_argument('--per_device_train_batch_size')
-        parser.add_argument('--per_device_eval_batch_size')
-        parser.add_argument('--logging_steps')
+        parser.add_argument('--lr', type=float)
+        parser.add_argument('--warmup_steps',type=int)
+        parser.add_argument('--weight_decay', type=float)
+        parser.add_argument('--label_smoothing_factor', type=float)
+        parser.add_argument('--per_device_train_batch_size',type=int)
+        parser.add_argument('--per_device_eval_batch_size',type=int)
+        parser.add_argument('--logging_steps',type=int)
         parser.add_argument('--eval_metrics')
-        parser.add_argument('--seed')
+        parser.add_argument('--cheat',type=bool)
+        parser.add_argument('--seed',type=int)
         
         return parent_parser
     
@@ -197,16 +201,27 @@ class BrioGenerator(LightningModule):
         self.src_toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path,use_fast=False)
         self.trg_toker = self.src_toker ## to be compatible with NMT task
         ## model
-        if self.hparams.memory_dir is not None and self.hparams.memory_encoding == 'separate':
-            if 'pegasus' in self.hparams.pretrained_model_path:
-                self.model = BrioDualEncoderPegasusForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
-            elif 'bart' in self.hparams.pretrained_model_path:
-                self.model = BrioDualEncoderBartForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
+        if self.hparams.memory_dir is not None:
+            if self.hparams.memory_encoding == 'separate':
+                if 'pegasus' in self.hparams.pretrained_model_path:
+                    self.model = BrioDualEncoderPegasusForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
+                elif 'bart' in self.hparams.pretrained_model_path:
+                    self.model = BrioDualEncoderBartForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
+            elif self.hparams.memory_encoding == 'concate':
+                if 'bart' in self.hparams.pretrained_model_path:
+                    self.model = BrioBartForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
+                elif 'pegasus' in self.hparams.pretrained_model_path:
+                    self.model = BrioPegasusForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)                
+                special_tokens_dict = {'additional_special_tokens': ["<MEMORY_SPLITTER>"]}
+                self.src_toker.add_special_tokens(special_tokens_dict)
+                self.vocab_size = len(self.src_toker)
+                self.model.resize_token_embeddings(len(self.src_toker))
         else:
             if 'bart' in self.hparams.pretrained_model_path:
                 self.model = BrioBartForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
             elif 'pegasus' in self.hparams.pretrained_model_path:
                 self.model = BrioPegasusForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
+        self.model.resize_token_embeddings(len(self.trg_toker))
 
     def eval_generation(self,hyps,refs,stage='valid'):
         if stage == 'valid':
@@ -217,10 +232,23 @@ class BrioGenerator(LightningModule):
         refs = refs[:cnt]
         r1,r2,rl = get_rouge_score(hyps,refs)
         bleu = get_bleu_score(hyps,refs)
-        self.log(stage+"_rouge1",r1)
-        self.log(stage+"_rouge2",r2)
-        self.log(stage+"_rougeL",rl)
-        self.log(stage+"_bleu",bleu)
+        bleu_1,bleu_2,bleu_3,bleu_4 = get_nltk_bleu_score(hyps,refs)
+        distinct_1,distinct_2 = get_distinct_score(hyps)
+
+        metrics_dict = {
+                stage+"_rouge1":r1,
+                stage+"_rouge2":r2,
+                stage+"_rougeL":rl,
+                stage+"_bleu":bleu,
+                stage+"_bleu1":bleu_1,
+                stage+"_bleu2":bleu_2,
+                stage+"_bleu3":bleu_3,
+                stage+"_bleu4":bleu_4,
+                stage+"_distinct_1":distinct_1,
+                stage+"_distinct_2":distinct_2,
+            }
+        self.log_dict(metrics_dict)
+        if stage=='valid':self.print(json.dumps(metrics_dict,indent=4))
 
     def get_brio_loss(self,batch,stage='fit'):
         epsilon = self.hparams.label_smoothing_factor if stage=='fit' else 0
@@ -425,8 +453,12 @@ class BrioGenerator(LightningModule):
     def setup(self,stage):
         if stage == 'fit':
             self.train_data_cnt,self.train_dataset=self.load_data('train')
+            if self.hparams.cheat:
+                self.valid_data_cnt,self.valid_dataset=self.load_data('test')
+            else:
+                self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
+        elif stage == 'validate':
             self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
-        # elif stage == 'valid':
         elif stage == 'test':
             self.test_data_cnt,self.test_dataset=self.load_data('test')
     
@@ -492,7 +524,8 @@ if __name__ == "__main__":
     )
 
     if args.zero_shot:
-        trainer.test(model)
+        # trainer.test(model)
+        trainer.validate(model)
     
     if not args.do_not_train:
         trainer.fit(model)

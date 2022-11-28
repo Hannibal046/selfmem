@@ -1,7 +1,6 @@
 import json,os,time,argparse,warnings,time,yaml
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 ## torch
 import torch
 import torch.distributed as dist
@@ -22,16 +21,20 @@ warnings.filterwarnings("ignore", category=PossibleUserWarning)
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
+    AutoModel,
 )
 ## own
 from utils.utils import (
     LabelSmoother,
     get_remain_time,
     split_list,
+    get_gpu_usage,
 )
 from utils.metrics_utils import (
     get_rouge_score,
     get_bleu_score,
+    get_nltk_bleu_score,
+    get_distinct_score,
 )
 from utils.optim_utils import (
     get_inverse_sqrt_schedule_with_warmup
@@ -53,9 +56,8 @@ class MemoryDataset(torch.utils.data.Dataset):
     def __len__(self,):
         return len(self.data)
 
-def collate_fct(samples,toker,max_length,src='document',trg='summary',num_candidates=None,is_training=False):
+def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summary',num_candidates=None,is_training=False):
     
-    batch_size = len(samples)
     src = [d[src] for d in samples]
     trg = [d[trg] for d in samples]
     candidates = [d['candidates'] for d in samples]
@@ -65,20 +67,20 @@ def collate_fct(samples,toker,max_length,src='document',trg='summary',num_candid
             if num_candidates is not None:
                 candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
         candidates[idx] = [x[0] for x in candidates[idx]]
-        num_candidates = len(candidates[idx])
+        if is_training:candidates[idx].insert(0,trg[idx])
     flattened_candidates = [x for y in candidates for x in y]
 
-    expanded_src = [[x] * num_candidates for x in src]
-    expanded_src = [x for y in expanded_src for x in y]
-    
-    input = toker(expanded_src,flattened_candidates,return_tensors='pt',padding=True,truncation='only_first',max_length=max_length)
-    input['input_ids'] = input['input_ids'].view(batch_size,num_candidates,-1)
-    
-    ret = {**input}
-    ret['candidates'] = candidates
-    ret['refs'] = trg
-    
-    return ret
+    tokenized_src = toker(src,return_tensors='pt',padding=True,truncation=True,max_length=max_src_len)
+    tokenized_candidates = toker(flattened_candidates,return_tensors='pt',padding=True,truncation=True,max_length=max_trg_len)
+
+    return {
+        "src_input_ids":tokenized_src['input_ids'],
+        "src_attention_mask":tokenized_src['attention_mask'],
+        "candidate_input_ids":tokenized_candidates['input_ids'],
+        "candidate_attention_mask":tokenized_candidates['attention_mask'],
+        "candidates":candidates,
+        "refs":trg,
+    }
 
 class SingleTowerRankingModel(LightningModule):
     @staticmethod
@@ -91,7 +93,8 @@ class SingleTowerRankingModel(LightningModule):
         parser.add_argument('--candidate_dir',)
         parser.add_argument('--src')
         parser.add_argument('--trg')
-        parser.add_argument('--max_length', type=int)
+        parser.add_argument('--max_trg_len', type=int)
+        parser.add_argument('--max_src_len', type=int)
         parser.add_argument('--pretrained_model_path')
         parser.add_argument("--temperature",type=float)
         parser.add_argument('--lr',type=float)
@@ -103,6 +106,16 @@ class SingleTowerRankingModel(LightningModule):
         parser.add_argument('--logging_steps',type=int)
         parser.add_argument('--eval_metrics')
         parser.add_argument('--seed',type=int)
+        parser.add_argument('--cheat',action='store_true')
+        parser.add_argument('--contrastive_loss',type=bool)
+        parser.add_argument('--simcls_loss',type=bool)
+        parser.add_argument('--margin',type=float)
+        parser.add_argument('--no_gold',type=bool)
+        parser.add_argument('--gold_weight',type=float)
+        parser.add_argument('--gold_margin',type=float)
+        parser.add_argument('--architecture')
+        parser.add_argument('--requires_gold',type=bool)
+
         
         return parent_parser
     
@@ -113,18 +126,24 @@ class SingleTowerRankingModel(LightningModule):
         self.configure_model()
         self.train_collate_fct = partial(collate_fct,
                                   toker = self.toker,
-                                  max_length = self.hparams.max_length,
+                                  max_src_len = self.hparams.max_src_len,
+                                  max_trg_len = self.hparams.max_trg_len,
                                   src = self.hparams.src,trg = self.hparams.trg,
                                   num_candidates=self.hparams.num_candidates,
                                   is_training=True)
         self.test_collate_fct = partial(self.train_collate_fct,is_training=False)
         
-        self.contrastive_losses = []
-        self.total_losses = []
+        self.contrastive_loss_list = []
+        self.simcls_loss_list = []
+        self.total_loss_list = []
 
     def configure_model(self):
-        self.toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path,use_fast=False)
-        self.model = AutoModelForSequenceClassification.from_pretrained(self.hparams.pretrained_model_path,num_labels=1)
+
+        self.toker = AutoTokenizer.from_pretrained(self.hparams.pretrained_model_path)
+        if self.hparams.architecture == 'single_tower':
+            self.model = AutoModelForSequenceClassification.from_pretrained(self.hparams.pretrained_model_path,num_labels=1)
+        elif self.hparams.architecture == 'dual_tower':
+            self.model = AutoModel.from_pretrained(self.hparams.pretrained_model_path,num_labels=1)
 
     def eval_generation(self,hyps,refs,stage='valid'):
         if stage == 'valid':
@@ -135,40 +154,115 @@ class SingleTowerRankingModel(LightningModule):
         refs = refs[:cnt]
         r1,r2,rl = get_rouge_score(hyps,refs)
         bleu = get_bleu_score(hyps,refs)
-        self.log(stage+"_rouge1",r1)
-        self.log(stage+"_rouge2",r2)
-        self.log(stage+"_rougeL",rl)
-        self.log(stage+"_bleu",bleu)
+        bleu_1,bleu_2,bleu_3,bleu_4 = get_nltk_bleu_score(hyps,refs)
+        distinct_1,distinct_2 = get_distinct_score(hyps)
 
-    def contrastive_loss_fct(self,scores):
+        metrics_dict = {
+                stage+"_rouge1":r1,
+                stage+"_rouge2":r2,
+                stage+"_rougeL":rl,
+                stage+"_bleu":bleu,
+                stage+"_bleu1":bleu_1,
+                stage+"_bleu2":bleu_2,
+                stage+"_bleu3":bleu_3,
+                stage+"_bleu4":bleu_4,
+                stage+"_distinct_1":distinct_1,
+                stage+"_distinct_2":distinct_2,
+            }
+        self.log_dict(metrics_dict)
+        self.print(json.dumps(metrics_dict,indent=4))
+
+    def listwise_contrastive_loss_fct(self,scores):
         ## score: [bs,num_candidates]
+        if not self.hparams.requires_gold:
+            scores = scores[:,1:]
         loss = -nn.LogSoftmax(1)(scores/self.hparams.temperature)
         loss = loss[:,0].mean()
         return loss
+    
+    def pairwise_ranking_loss_fct(self,logits):
+        ## logits: [bs,num_candidates]
+        logits = torch.nn.functional.normalize(logits,dim=1)
+        refs_scores = logits[:,0]
+        candidates_scores = logits[:,1:]
+        
+        ones = torch.ones_like(candidates_scores)
+        loss_func = torch.nn.MarginRankingLoss(0.0)
+        TotalLoss = loss_func(candidates_scores, candidates_scores, ones)
+        # candidate loss
+        n = candidates_scores.size(1)
+        for i in range(1, n):
+            pos_score = candidates_scores[:, :-i]
+            neg_score = candidates_scores[:, i:]
+            pos_score = pos_score.contiguous().view(-1)
+            neg_score = neg_score.contiguous().view(-1)
+            ones = torch.ones_like(pos_score)
+            loss_func = torch.nn.MarginRankingLoss(self.hparams.margin * i)
+            loss = loss_func(pos_score, neg_score, ones)
+            TotalLoss += loss
+        if self.hparams.no_gold:
+            return TotalLoss
+        # gold summary loss
+        pos_score = refs_scores.unsqueeze(-1).expand_as(candidates_scores)
+        neg_score = candidates_scores
+        pos_score = pos_score.contiguous().view(-1)
+        neg_score = neg_score.contiguous().view(-1)
+        ones = torch.ones_like(pos_score)
+        loss_func = torch.nn.MarginRankingLoss(self.hparams.gold_margin)
+        TotalLoss += self.hparams.gold_weight * loss_func(pos_score, neg_score, ones)
+        return TotalLoss
 
+    def get_logits(self,batch):
+        
+        batch_size = batch['src_input_ids'].shape[0]
+        num_candidates = int(batch['candidate_input_ids'].shape[0]/batch_size)
+        
+        if self.hparams.architecture == 'dual_tower':
+
+            src_embedding = self.model(
+                input_ids = batch['src_input_ids'],
+                attention_mask = batch['src_attention_mask'],
+            ).pooler_output ## bs,d_model
+
+            candidates_embedding = self.model(
+                input_ids = batch['candidate_input_ids'],
+                attention_mask = batch['candidate_attention_mask'],
+            ).pooler_output.view(batch_size,num_candidates,-1) ## bs,num_candidates,d_model
+
+            logits = torch.cosine_similarity(candidates_embedding,src_embedding.unsqueeze(1).expand_as(candidates_embedding),dim=-1)
+            
+        elif self.hparams.architecture == 'single_tower':
+
+            candidate_input_ids = batch['candidate_input_ids']
+            candidate_attention_mask = batch['candidate_attention_mask']
+            src_input_ids = batch['src_input_ids']
+            src_attention_mask = batch['src_attention_mask']
+            src_input_ids = src_input_ids.repeat_interleave(num_candidates,dim=0)
+            src_attention_mask = src_attention_mask.repeat_interleave(num_candidates,dim=0)
+
+            logits = self.model(
+                input_ids = torch.cat((src_input_ids,candidate_input_ids),dim=1),
+                attention_mask = torch.cat((src_attention_mask,candidate_attention_mask),dim=1),
+            ).logits.view(batch_size,num_candidates)
+        
+        self.cur_logits = logits
+        return logits
 
     def get_ranking_loss(self,batch):
         
-        batch_size,num_candidates,_ = batch['input_ids'].shape
-        batch['input_ids'] = batch['input_ids'].view(batch_size * num_candidates,-1)
-        refs = batch.pop('refs')
-        candidates = batch.pop('candidates')
+        logits = self.get_logits(batch)
 
-        model_output = self.model(
-            input_ids = batch['input_ids'],
-            attention_mask = batch['attention_mask'],
-            token_type_ids = batch['token_type_ids'] if 'token_type_ids' in batch else None,
-            )
-        logits = model_output.logits.view(batch_size,num_candidates)
-        self.current_logits = logits
-        contrastive_loss = self.contrastive_loss_fct(logits)
-        # self.contrastive_losses.append(contrastive_loss)
-
-        total_loss = contrastive_loss
-        self.total_losses.append(total_loss.item())
+        total_loss = 0
+        if self.hparams.contrastive_loss:
+            contrastive_loss = self.listwise_contrastive_loss_fct(logits)
+            total_loss += contrastive_loss
+            self.contrastive_loss_list.append(contrastive_loss.item())
+        if self.hparams.simcls_loss:
+            simcls_loss = self.pairwise_ranking_loss_fct(logits)
+            total_loss += simcls_loss
+            self.simcls_loss_list.append(simcls_loss.item())
         
-        batch['refs']=refs
-        batch['candidates']=candidates
+        self.total_loss_list.append(total_loss.item())
         
         return total_loss
 
@@ -186,17 +280,9 @@ class SingleTowerRankingModel(LightningModule):
         return hyps,batch['refs']
     
     def rank(self,batch):
-        candidates = batch.pop("candidates")
-        refs = batch.pop("refs")
-        batch_size,num_candidates,_ = batch['input_ids'].shape
-        batch['input_ids'] = batch['input_ids'].view(batch_size * num_candidates,-1)
-        model_output = self.model(**batch)
-        batch['refs']=refs
-        batch['candidates']=candidates
-        logits = model_output.logits.view(batch_size,num_candidates)
+        logits = self.get_logits(batch)
         index = torch.argmax(logits,dim=1).tolist()
-        
-        hyps = [candidate[i] for candidate,i in zip(candidates,index)]
+        hyps = [candidate[i] for candidate,i in zip(batch['candidates'],index)]
         return hyps
 
     def merge(self,outputs):
@@ -227,6 +313,7 @@ class SingleTowerRankingModel(LightningModule):
                 for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
             self.model.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
+            self.toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
     
     def validation_epoch_end(self,outputs):
         hyps,refs = self.merge(outputs)
@@ -239,21 +326,28 @@ class SingleTowerRankingModel(LightningModule):
         self.print(self.hparams)
 
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
-        if self.global_step % self.hparams.logging_steps == 0 and self.global_step !=0:
+            
+        if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
             msg  = f"{time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))} "
             msg += f"[{self.trainer.current_epoch+1}|{self.trainer.max_epochs}] "
             msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
-            msg += f"Total Loss:{sum(self.total_losses)/len(self.total_losses):.4f} "
-            self.total_losses = []
+            
+            msg += f"Loss:{sum(self.total_loss_list)/len(self.total_loss_list):.4f} "
+            self.total_loss_list = []
+            
+            if self.contrastive_loss_list:
+                msg += f"contrastive_loss:{sum(self.contrastive_loss_list)/len(self.contrastive_loss_list):.4f} "
+                self.contrastive_loss_list = []
+            
+            if self.simcls_loss_list:
+                msg += f"simcls_loss:{sum(self.simcls_loss_list)/len(self.simcls_loss_list):.4f} "
+                self.simcls_loss_list = []
+            
+            msg += f"GPU Mem:{get_gpu_usage()} "
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
-            msg += f"current_logits:{self.current_logits[:2]} "
-            if 'valid_rouge1' in self.trainer.callback_metrics.keys():
-                msg += f"valid_rouge1:{self.trainer.callback_metrics['valid_rouge1']:.4f} "
-            if 'valid_ppl' in self.trainer.callback_metrics.keys():
-                msg += f"valid_ppl:{self.trainer.callback_metrics['valid_ppl']:.4f} "
-            if 'valid_bleu' in self.trainer.callback_metrics.keys():
-                msg += f"valid_bleu:{self.trainer.callback_metrics['valid_bleu']:.4f} "
+            if 'valid_'+self.hparams.eval_metrics in self.trainer.callback_metrics.keys():
+                msg += f"valid_{self.hparams.eval_metrics}:{self.trainer.callback_metrics['valid_'+self.hparams.eval_metrics]:.4f} "
             self.print(msg)
 
     def configure_optimizers(self):
@@ -296,8 +390,12 @@ class SingleTowerRankingModel(LightningModule):
     def setup(self,stage):
         if stage == 'fit':
             self.train_data_cnt,self.train_dataset=self.load_data('train')
+            if self.hparams.cheat is not None and self.hparams.cheat:
+                self.valid_data_cnt,self.valid_dataset=self.load_data('test')
+            else:
+                self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
+        elif stage == 'validate':
             self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
-        # elif stage == 'valid':
         elif stage == 'test':
             self.test_data_cnt,self.test_dataset=self.load_data('test')
     

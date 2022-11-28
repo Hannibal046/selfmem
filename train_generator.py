@@ -83,17 +83,21 @@ def collate_fct(samples,src_toker,trg_toker,max_src_len,max_trg_len,memory_encod
             }
 
     else:
-        memory = [d['memory'] for d in samples]
+
         if memory_encoding == 'concate':
-            tokenized_src = src_toker(src,memory,return_tensors='pt',padding=True,truncation='only_first',max_length=max_src_len,return_attention_mask=True)
+            memory_splitter = " <MEMORY_SPLITTER> "
+            memory = [memory_splitter + d['memory'] for d in samples]
+            tokenized_memory = src_toker(memory,return_tensors='pt',padding=True,truncation=True,max_length=max_trg_len+2,return_attention_mask=True)
+            tokenized_src = src_toker(src,return_tensors='pt',padding=True,truncation=True,max_length=(max_src_len-max_trg_len-2),return_attention_mask=True)
             return {
-                "input_ids":tokenized_src['input_ids'],
-                "attention_mask":tokenized_src['attention_mask'],
+                "input_ids":torch.cat((tokenized_src['input_ids'],tokenized_memory['input_ids']),dim=1),
+                "attention_mask":torch.cat((tokenized_src['attention_mask'],tokenized_memory['attention_mask']),dim=1),
                 'labels':tokenized_trg['input_ids'],
                 "refs":trg,
                 }
 
         elif memory_encoding == 'separate':
+            memory = [d['memory'] for d in samples]
             tokenized_memory = trg_toker(memory,return_tensors='pt',padding=True,truncation=True,max_length=max_trg_len)
             tokenized_src = trg_toker(src,return_tensors='pt',padding=True,truncation=True,max_length=max_src_len,return_attention_mask=True)
             return {
@@ -183,6 +187,10 @@ class ConditionalGenerator(LightningModule):
             ## retrieval-aug
             if self.hparams.memory_encoding == 'concate':
                 self.model = AutoModelForSeq2SeqLM.from_pretrained(self.hparams.pretrained_model_path)
+                special_tokens_dict = {'additional_special_tokens': ["<MEMORY_SPLITTER>"]}
+                self.src_toker.add_special_tokens(special_tokens_dict)
+                self.vocab_size = len(self.src_toker)
+                self.model.resize_token_embeddings(len(self.src_toker))
             elif self.hparams.memory_encoding == 'separate':
                 if 'pegasus' in self.hparams.pretrained_model_path:
                     self.model = DualEncoderPegasusForConditionalGeneration.from_pretrained(self.hparams.pretrained_model_path)
@@ -220,7 +228,7 @@ class ConditionalGenerator(LightningModule):
                 stage+"_distinct_2":distinct_2,
             }
         self.log_dict(metrics_dict)
-        self.print(json.dumps(metrics_dict,indent=4))
+        if stage=='valid':self.print(json.dumps(metrics_dict,indent=4))
 
 
     def get_mle_loss(self,batch,stage='fit'):
@@ -322,7 +330,7 @@ class ConditionalGenerator(LightningModule):
     def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
         if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
             msg  = f"{time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))} "
-            msg += f"[{self.trainer.current_epoch}|{self.trainer.max_epochs}] "
+            msg += f"[{self.trainer.current_epoch+1}|{self.trainer.max_epochs}] "
             msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
             msg += f"Loss:{sum(self.losses)/len(self.losses):.4f} "
             msg += f"GPU Mem:{get_gpu_usage()} "
@@ -356,6 +364,7 @@ class ConditionalGenerator(LightningModule):
                 num_return_sequences = 1
             else:
                 num_return_sequences=self.hparams.num_return_sequences * int(self.hparams.num_beams/self.hparams.num_beam_groups) if self.hparams.num_beam_groups is not None else self.hparams.num_return_sequences
+            
             output = self.model.generate(
                 input_ids=batch['input_ids'],
                 attention_mask=batch['attention_mask'],
@@ -460,6 +469,7 @@ if __name__ == "__main__":
     parser.add_argument("--zero_shot",action='store_true')
     parser.add_argument("--do_not_train",action='store_true')
     parser.add_argument("--early_stop_patience",type=int,default=-1)
+    parser.add_argument("--save_top_k",type=int,default=1)
     
     parser = pl.Trainer.add_argparse_args(parser)
     parser = ConditionalGenerator.add_model_specific_args(parser)
@@ -482,7 +492,7 @@ if __name__ == "__main__":
     monitor = "valid_"+args.eval_metrics
     mode = 'max' if args.eval_metrics != 'ppl' else 'min'
     callbacks = []
-    callbacks.append(ModelCheckpoint(save_top_k=1, monitor=monitor,mode=mode))
+    callbacks.append(ModelCheckpoint(save_top_k=args.save_top_k, monitor=monitor,mode=mode))
     if args.early_stop_patience > -1:
         callbacks.append(EarlyStopping(monitor=monitor, mode=mode,patience=args.early_stop_patience))
 

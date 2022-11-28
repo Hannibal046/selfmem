@@ -15,7 +15,7 @@ per_device_eval_batch_size: 12
 lr: 5.0e-3
 warmup_steps: 10000
 accelerator: gpu
-val_check_interval: 0.5
+val_check_interval: 1.0
 label_smoothing_factor: 0.1
 gradient_clip_val: 1.0
 weight_decay: 0

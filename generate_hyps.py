@@ -53,7 +53,6 @@ class MemoryDataset(torch.utils.data.Dataset):
         memory=None,
         ):
         super().__init__()
-        self.data = data
         if memory is not None:
             if len(data) != len(memory):
                 assert len(memory)%len(data)==0,(len(data),len(memory))
@@ -62,7 +61,9 @@ class MemoryDataset(torch.utils.data.Dataset):
                 data = [x for y in data for x in y]
             assert len(data)==len(memory),(len(data),len(memory))
             for idx in range(len(data)):
-                self.data[idx]['memory']=memory[idx]
+                data[idx]['memory']=memory[idx]
+        
+        self.data = data
     
     def __getitem__(self,index):
         return self.data[index]

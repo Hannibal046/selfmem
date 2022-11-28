@@ -6,18 +6,17 @@ accelerator: gpu
 
 src: document
 trg: summary
-num_candidates: 4
+num_candidates: 16
 max_length: 512
 temperature: 0.05
 lr: 5.0e-4
 warmup_steps: 3000
 weight_decay: 0.01
-per_device_train_batch_size: 2
+per_device_train_batch_size: 1
 per_device_eval_batch_size: 1
-logging_steps: 50
+logging_steps: 10
 eval_metrics: rouge1
 seed: 980406
-accumulate_grad_batches: 16
-max_epochs: 20
+accumulate_grad_batches: 4
+max_epochs: 10
 early_stop_patience: 5
-precision: 32

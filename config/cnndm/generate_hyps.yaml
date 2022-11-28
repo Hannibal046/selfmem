@@ -6,6 +6,7 @@ memory_encoding: null
 pretrained_model_path: null
 src: document
 trg: summary
+default_root_dir: /tmp
 ## training
 per_device_eval_batch_size: 12
 accelerator: gpu
