@@ -1,5 +1,5 @@
 ## path
-data_dir: ../data/dailydialog
+data_dir: ../data/convai2
 pretrained_model_path: ../pretrained_model/bart_large
 default_root_dir: /tmp
 memory_dir: null
@@ -18,12 +18,11 @@ val_check_interval: 1.0
 label_smoothing_factor: 0.1
 gradient_clip_val: 1.0 
 weight_decay: 0
-train_max_src_len: 120
-train_max_trg_len: 55
+train_max_src_len: 388
+train_max_trg_len: 40
 logging_steps: 100
 eval_metrics: bleu1
 seed: 980406
 ## generation
-gen_max_len: 58
-gen_min_len: 5
+gen_max_len: 28
 num_beams: 5
