@@ -16,6 +16,6 @@ do
     
     python calculate_candidates_score.py \
         --refs_path ../data/$dataset/${_split}.jsonl \
-        --candidates_path ../candidates/$dataset/$output_dir/diverse/${_split}.candidates 
+        --candidates_path ../candidates/$dataset/$output_dir/diverse/${_split}.candidates \
         --metrics $metrics
 done
