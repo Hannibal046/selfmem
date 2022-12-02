@@ -36,8 +36,8 @@ from utils.metrics_utils import (
     get_nltk_bleu_score,
     get_distinct_score,
 )
-from utils.optim_utils import (
-    get_inverse_sqrt_schedule_with_warmup
+from utils.ddp_utils import (
+    UnevenSequentialDistributedSampler,
 )
 
 class MemoryDataset(torch.utils.data.Dataset):
@@ -58,7 +58,6 @@ class MemoryDataset(torch.utils.data.Dataset):
 
 def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summary',num_candidates=None,is_training=False):
     
-    if not is_training:max_trg_len = max_src_len
     src = [d[src] for d in samples]
     trg = [d[trg] for d in samples]
     candidates = [d['candidates'] for d in samples]
@@ -89,33 +88,20 @@ class RankingModel(LightningModule):
         
         parser = parent_parser.add_argument_group("model_args")
         ## data
-        parser.add_argument('--data_dir',)
+        parser.add_argument('--data_path',)
         parser.add_argument('--config_path',)
-        parser.add_argument('--candidate_dir',)
+        parser.add_argument('--candidate_path',)
+        parser.add_argument('--output_path',)
         parser.add_argument('--src')
         parser.add_argument('--trg')
         parser.add_argument('--max_trg_len', type=int)
         parser.add_argument('--max_src_len', type=int)
         parser.add_argument('--pretrained_model_path')
-        parser.add_argument("--temperature",type=float)
-        parser.add_argument('--lr',type=float)
-        parser.add_argument('--warmup_steps',type=int)
-        parser.add_argument('--weight_decay',type=float)
-        parser.add_argument('--per_device_train_batch_size',type=int)
-        parser.add_argument("--num_candidates",type=int)
         parser.add_argument('--per_device_eval_batch_size',type=int)
-        parser.add_argument('--logging_steps',type=int)
         parser.add_argument('--eval_metrics')
         parser.add_argument('--seed',type=int)
-        parser.add_argument('--cheat',action='store_true')
-        parser.add_argument('--contrastive_loss',type=bool)
-        parser.add_argument('--simcls_loss',type=bool)
-        parser.add_argument('--margin',type=float)
-        parser.add_argument('--no_gold',type=bool)
-        parser.add_argument('--gold_weight',type=float)
-        parser.add_argument('--gold_margin',type=float)
         parser.add_argument('--architecture')
-        parser.add_argument('--requires_gold',type=bool)
+        
 
         
         return parent_parser
@@ -267,19 +253,10 @@ class RankingModel(LightningModule):
         
         return total_loss
 
-    def training_step(self,batch,batch_idx):
-        loss = self.get_ranking_loss(batch)
-        self.log("train_loss",loss.item())
-        return loss
-    
     def test_step(self, batch, batch_idx):
         hyps = self.rank(batch)
         return hyps,batch['refs']
 
-    def validation_step(self,batch,batch_idx):
-        hyps = self.rank(batch)
-        return hyps,batch['refs']
-    
     def rank(self,batch):
         logits = self.get_logits(batch)
         index = torch.argmax(logits,dim=1).tolist()
@@ -301,74 +278,22 @@ class RankingModel(LightningModule):
 
     def test_epoch_end(self,outputs):
         if self.logger:self.log("v_num",self.logger.version)
-        log_dir = str(self.trainer.log_dir) ## Super Important here to save log_dir 
         hyps,refs = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
         self.eval_generation(hyps,refs,'test')
 
         if self.trainer.is_global_zero:
-            with open(os.path.join(log_dir,'test_hyps.txt'),'w') as f:
+            with open(self.hparams.output_path,'w') as f:
                 for h in hyps[:self.test_data_cnt]:f.write(h.replace("\n"," ")+"\n")
-            with open(os.path.join(log_dir,'test_refs.txt'),'w') as f:
-                for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
-            model_type = os.path.basename(self.hparams.pretrained_model_path)
-            self.model.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
-            self.toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
-    
-    def validation_epoch_end(self,outputs):
-        hyps,refs = self.merge(outputs)
-        hyps = [x for y in hyps for x in y]
-        refs = [x for y in refs for x in y]
-        self.eval_generation(hyps,refs,'valid')
-
-    def on_train_start(self) -> None:
-        self.train_start_time = time.time()
-        self.print(self.hparams)
-
-    def on_before_optimizer_step(self, optimizer, optimizer_idx: int) -> None:
-            
-        if self.global_step % self.hparams.logging_steps == 0 and self.global_step != 0 :
-            msg  = f"{time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time()))} "
-            msg += f"[{self.trainer.current_epoch+1}|{self.trainer.max_epochs}] "
-            msg += f"[{self.global_step:6}|{self.trainer.estimated_stepping_batches}] "
-            
-            msg += f"Loss:{sum(self.total_loss_list)/len(self.total_loss_list):.4f} "
-            self.total_loss_list = []
-            
-            if self.contrastive_loss_list:
-                msg += f"contrastive_loss:{sum(self.contrastive_loss_list)/len(self.contrastive_loss_list):.4f} "
-                self.contrastive_loss_list = []
-            
-            if self.simcls_loss_list:
-                msg += f"simcls_loss:{sum(self.simcls_loss_list)/len(self.simcls_loss_list):.4f} "
-                self.simcls_loss_list = []
-            
-            msg += f"GPU Mem:{get_gpu_usage()} "
-            msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
-            msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
-            if 'valid_'+self.hparams.eval_metrics in self.trainer.callback_metrics.keys():
-                msg += f"valid_{self.hparams.eval_metrics}:{self.trainer.callback_metrics['valid_'+self.hparams.eval_metrics]:.4f} "
-            self.print(msg)
-
-    def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-        lr_scheduler = get_inverse_sqrt_schedule_with_warmup(optimizer, self.hparams.warmup_steps)
-        return {
-                "optimizer": optimizer,
-                "lr_scheduler": {
-                    "scheduler": lr_scheduler,
-                    "interval": "step",
-                    },
-                }
     
     def load_data(self,_split):
 
-        data_path = os.path.join(self.hparams.data_dir,_split+".jsonl")
+        data_path = self.hparams.data_path
         data = [json.loads(x) for x in open(data_path).readlines()]
         data_cnt = len(data)
         
-        candidate_path = os.path.join(self.hparams.candidate_dir,_split+".candidates")
+        candidate_path = data_path = self.hparams.candidate_path
         candidates = [x.strip() for x in open(candidate_path).readlines()]
         num_candidates = int(len(candidates)/len(data))
         candidates = split_list(candidates,num_candidates)
@@ -389,44 +314,22 @@ class RankingModel(LightningModule):
         return data_cnt,dataset
     
     def setup(self,stage):
-        if stage == 'fit':
-            self.train_data_cnt,self.train_dataset=self.load_data('train')
-            if self.hparams.cheat is not None and self.hparams.cheat:
-                self.valid_data_cnt,self.valid_dataset=self.load_data('test')
-            else:
-                self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
-        elif stage == 'validate':
-            self.valid_data_cnt,self.valid_dataset=self.load_data('dev')
-        elif stage == 'test':
-            self.test_data_cnt,self.test_dataset=self.load_data('test')
-    
-    def train_dataloader(self):
-        return torch.utils.data.DataLoader(self.train_dataset, batch_size=self.hparams.per_device_train_batch_size,
-                                           shuffle=True,collate_fn=self.train_collate_fct,
-                                           num_workers=8, pin_memory=True)
-    
-    def val_dataloader(self):
-        return torch.utils.data.DataLoader(self.valid_dataset, batch_size=self.hparams.per_device_eval_batch_size,
-                                           shuffle=False,collate_fn=self.test_collate_fct,
-                                           num_workers=8, pin_memory=True)
+        assert stage == 'test'
+        self.test_data_cnt,self.test_dataset=self.load_data('test')
     
     def test_dataloader(self):
+        if self.trainer.num_devices > 1:
+            sampler = UnevenSequentialDistributedSampler(self.test_dataset)
+        else:
+            sampler = torch.utils.data.SequentialSampler(self.test_dataset)
         return torch.utils.data.DataLoader(self.test_dataset, batch_size=self.hparams.per_device_eval_batch_size,
                                            shuffle=False,collate_fn=self.test_collate_fct,
-                                           num_workers=8, pin_memory=True)
-
-
-
+                                           num_workers=8, pin_memory=True,sampler=sampler)
 
 if __name__ == "__main__":
     
     ## args
     parser = argparse.ArgumentParser()
-    parser.add_argument("--zero_shot",action='store_true')
-    parser.add_argument("--do_not_train",action='store_true')
-    parser.add_argument("--early_stop_patience",type=int,default=-1)
-    
-
     parser = pl.Trainer.add_argparse_args(parser)
     parser = RankingModel.add_model_specific_args(parser)
     args = parser.parse_args()
@@ -435,9 +338,6 @@ if __name__ == "__main__":
     for k,v in config.items():
         if getattr(args,k) is None:
             setattr(args,k,v)
-    ## seed
-    pl.seed_everything(args.seed,workers=True)
-    
     ## model
     model = RankingModel(**vars(args))
     
@@ -445,28 +345,9 @@ if __name__ == "__main__":
     strategy = None
     if args.accelerator == 'gpu' and torch.cuda.device_count()>1:strategy = DDPStrategy(find_unused_parameters=False)
 
-    ## callbacks
-    monitor = "valid_"+args.eval_metrics
-    mode = 'max' if args.eval_metrics != 'ppl' else 'min'
-    callbacks = []
-    callbacks.append(ModelCheckpoint(save_top_k=1, monitor=monitor,mode=mode))
-    if args.early_stop_patience > -1:
-        callbacks.append(EarlyStopping(monitor=monitor, mode=mode,patience=args.early_stop_patience))
-
     ## trainer
     trainer = pl.Trainer.from_argparse_args(
         args,
-        callbacks= callbacks,
         strategy = strategy,
-        val_check_interval=args.val_check_interval,
     )
-
-    if args.zero_shot:
-        trainer.test(model)
-    
-    if not args.do_not_train:
-        trainer.fit(model)
-        trainer.test(ckpt_path='best')
-    else:
-        trainer.test(model)
-    # trainer.test(model)
+    trainer.test(model)
