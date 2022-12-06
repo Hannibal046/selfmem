@@ -16,7 +16,6 @@ seed: 980406
 ## generation
 gen_max_len: 64
 length_penalty: 0.6
-diversity_penalty: 0.1
 num_beams: 32
 num_return_sequences: 16
 early_stopping: true
