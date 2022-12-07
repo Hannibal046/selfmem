@@ -6,6 +6,7 @@ src: document
 trg: summary
 accelerator: gpu
 num_candidates: 16
+candidates_sampling: sequential
 max_src_len: 512
 max_trg_len: 80
 ## reranker

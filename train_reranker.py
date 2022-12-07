@@ -1,4 +1,4 @@
-import json,os,time,argparse,warnings,time,yaml
+import json,os,time,argparse,warnings,time,yaml,random
 from functools import partial
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 ## torch
@@ -56,17 +56,22 @@ class MemoryDataset(torch.utils.data.Dataset):
     def __len__(self,):
         return len(self.data)
 
-def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summary',num_candidates=None,is_training=False):
+def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summary',num_candidates=None,is_training=False,candidates_sampling=None):
     
     if not is_training:max_trg_len = max_src_len
     src = [d[src] for d in samples]
     trg = [d[trg] for d in samples]
     candidates = [d['candidates'] for d in samples]
     for idx in range(len(candidates)):
-        if is_training:
-            candidates[idx].sort(key=lambda x:x[1],reverse=True)
-            if num_candidates is not None:
+        if num_candidates is not None:
+            if candidates_sampling == 'sequential':
+                candidates[idx]=candidates[idx][:num_candidates]
+            elif candidates_sampling == 'random':
+                candidates[idx]=random.sample(candidates[idx],num_candidates)
+            elif candidates_sampling == 'top_1_plus_bottom':
+                candidates[idx].sort(key=lambda x:x[1],reverse=True)
                 candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
+        candidates[idx].sort(key=lambda x:x[1],reverse=True)
         candidates[idx] = [x[0] for x in candidates[idx]]
         if is_training:candidates[idx].insert(0,trg[idx])
     flattened_candidates = [x for y in candidates for x in y]
@@ -116,7 +121,7 @@ class RankingModel(LightningModule):
         parser.add_argument('--gold_margin',type=float)
         parser.add_argument('--architecture')
         parser.add_argument('--requires_gold',type=bool)
-
+        parser.add_argument('--candidates_sampling',type=bool)
         
         return parent_parser
     
@@ -131,12 +136,13 @@ class RankingModel(LightningModule):
                                   max_trg_len = self.hparams.max_trg_len,
                                   src = self.hparams.src,trg = self.hparams.trg,
                                   num_candidates=self.hparams.num_candidates,
-                                  is_training=True)
+                                  is_training=True,candidates_sampling=self.hparams.candidates_sampling)
         self.test_collate_fct = partial(self.train_collate_fct,is_training=False)
         
         self.contrastive_loss_list = []
         self.simcls_loss_list = []
         self.total_loss_list = []
+        self.rank_list = []
 
     def configure_model(self):
 
@@ -249,10 +255,19 @@ class RankingModel(LightningModule):
         self.cur_logits = logits
         return logits
 
+    def get_ranking(self,logits):
+        if self.trainer.state.stage == 'train':
+            candidates_logits = logits[:,1:]
+        else:
+            candidates_logits = logits
+        bs,num_candidates = candidates_logits.shape
+        rank = (candidates_logits.argmax(dim=1)+1)/num_candidates
+        return rank.tolist()
+        
     def get_ranking_loss(self,batch):
         
         logits = self.get_logits(batch)
-
+        
         total_loss = 0
         if self.hparams.contrastive_loss:
             contrastive_loss = self.listwise_contrastive_loss_fct(logits)
@@ -265,6 +280,8 @@ class RankingModel(LightningModule):
         
         self.total_loss_list.append(total_loss.item())
         
+        self.rank_list.extend(self.get_ranking(logits))
+
         return total_loss
 
     def training_step(self,batch,batch_idx):
@@ -273,18 +290,19 @@ class RankingModel(LightningModule):
         return loss
     
     def test_step(self, batch, batch_idx):
-        hyps = self.rank(batch)
-        return hyps,batch['refs']
+        hyps,ranking = self.rank(batch)
+        return hyps,batch['refs'],ranking
 
     def validation_step(self,batch,batch_idx):
-        hyps = self.rank(batch)
-        return hyps,batch['refs']
+        hyps,ranking = self.rank(batch)
+        return hyps,batch['refs'],ranking
     
     def rank(self,batch):
         logits = self.get_logits(batch)
         index = torch.argmax(logits,dim=1).tolist()
         hyps = [candidate[i] for candidate,i in zip(batch['candidates'],index)]
-        return hyps
+        ranking = self.get_ranking(logits)
+        return hyps,ranking
 
     def merge(self,outputs):
 
@@ -302,9 +320,11 @@ class RankingModel(LightningModule):
     def test_epoch_end(self,outputs):
         if self.logger:self.log("v_num",self.logger.version)
         log_dir = str(self.trainer.log_dir) ## Super Important here to save log_dir 
-        hyps,refs = self.merge(outputs)
+        hyps,refs,rankings = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
+        rankings = [x for y in rankings for x in y]
+        self.log('avg_ranking',sum(rankings)/len(rankings))
         self.eval_generation(hyps,refs,'test')
 
         if self.trainer.is_global_zero:
@@ -313,14 +333,16 @@ class RankingModel(LightningModule):
             with open(os.path.join(log_dir,'test_refs.txt'),'w') as f:
                 for r in refs[:self.test_data_cnt]:f.write(r.replace("\n"," ")+"\n")
             model_type = os.path.basename(self.hparams.pretrained_model_path)
-            self.model.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
-            self.toker.save_pretrained(os.path.join(log_dir,model_type+'_best_ckpt'))
+            self.model.save_pretrained(os.path.join(log_dir,model_type))
+            self.toker.save_pretrained(os.path.join(log_dir,model_type))
     
     def validation_epoch_end(self,outputs):
-        hyps,refs = self.merge(outputs)
+        hyps,refs,rankings = self.merge(outputs)
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
-        self.eval_generation(hyps,refs,'valid')
+        rankings = [x for y in rankings for x in y]
+        self.log('avg_ranking',sum(rankings)/len(rankings))
+        self.eval_generation(hyps,refs,'test')
 
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
@@ -344,6 +366,10 @@ class RankingModel(LightningModule):
                 msg += f"simcls_loss:{sum(self.simcls_loss_list)/len(self.simcls_loss_list):.4f} "
                 self.simcls_loss_list = []
             
+            if self.rank_list:
+                msg += f"avg_rank:{sum(self.rank_list)/len(self.rank_list):.4f} "
+                self.rank_list = []
+            msg += f"Logits:{self.cur_logits[0,:10].tolist()} "
             msg += f"GPU Mem:{get_gpu_usage()} "
             msg += f"lr:{optimizer.param_groups[0]['lr']:e} "
             msg += f"remaining:{get_remain_time(self.train_start_time,self.trainer.estimated_stepping_batches,self.global_step)} "
