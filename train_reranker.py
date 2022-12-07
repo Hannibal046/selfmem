@@ -261,7 +261,8 @@ class RankingModel(LightningModule):
         else:
             candidates_logits = logits
         bs,num_candidates = candidates_logits.shape
-        rank = (candidates_logits.argmax(dim=1)+1)/num_candidates
+        self.print(num_candidates)
+        rank = (candidates_logits.argmax(dim=1)+1)
         return rank.tolist()
         
     def get_ranking_loss(self,batch):
@@ -324,7 +325,7 @@ class RankingModel(LightningModule):
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
         rankings = [x for y in rankings for x in y]
-        self.log('avg_ranking',sum(rankings)/len(rankings))
+        self.print('avg_ranking:',sum(rankings)/len(rankings))
         self.eval_generation(hyps,refs,'test')
 
         if self.trainer.is_global_zero:
@@ -341,8 +342,8 @@ class RankingModel(LightningModule):
         hyps = [x for y in hyps for x in y]
         refs = [x for y in refs for x in y]
         rankings = [x for y in rankings for x in y]
-        self.log('avg_ranking',sum(rankings)/len(rankings))
-        self.eval_generation(hyps,refs,'test')
+        self.print('avg_ranking:',sum(rankings)/len(rankings))
+        self.eval_generation(hyps,refs,'valid')
 
     def on_train_start(self) -> None:
         self.train_start_time = time.time()
@@ -376,6 +377,8 @@ class RankingModel(LightningModule):
             if 'valid_'+self.hparams.eval_metrics in self.trainer.callback_metrics.keys():
                 msg += f"valid_{self.hparams.eval_metrics}:{self.trainer.callback_metrics['valid_'+self.hparams.eval_metrics]:.4f} "
             self.print(msg)
+            self.print(f"avg_rank:{sum(self.rank_list)/len(self.rank_list):.4f} ")
+            self.rank_list = []
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
