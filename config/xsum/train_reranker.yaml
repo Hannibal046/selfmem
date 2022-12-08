@@ -15,7 +15,7 @@ architecture: dual_tower
 contrastive_loss: false
 temperature: 0.05
 ## simcls_loss
-simcls_loss: true
+simcls_loss: false
 margin: 0.01
 no_gold: false
 gold_weight: 1.0
