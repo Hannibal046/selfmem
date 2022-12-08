@@ -59,9 +59,11 @@ class MemoryDataset(torch.utils.data.Dataset):
 def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summary',num_candidates=None,is_training=False,candidates_sampling=None):
     
     if not is_training:max_trg_len = max_src_len
+    batch_size = len(samples)
     src = [d[src] for d in samples]
     trg = [d[trg] for d in samples]
     candidates = [d['candidates'] for d in samples]
+    labels = []
     for idx in range(len(candidates)):
         if num_candidates is not None:
             if candidates_sampling == 'sequential':
@@ -71,11 +73,15 @@ def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summar
             elif candidates_sampling == 'top_1_plus_bottom':
                 candidates[idx].sort(key=lambda x:x[1],reverse=True)
                 candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
-        candidates[idx].sort(key=lambda x:x[1],reverse=True)
+        candidates[idx].sort(key=lambda x:x[1],reverse=True)    
         candidates[idx] = [x[0] for x in candidates[idx]]
-
-        if is_training:candidates[idx].insert(0,trg[idx])
+        labels.append([x[1] for x in candidates[idx]])
+        if is_training:
+            candidates[idx].insert(0,trg[idx])
+            labels[idx].insert(0,1)
+    
     flattened_candidates = [x for y in candidates for x in y]
+    flattened_labels = [x for y in labels for x in y]
 
     tokenized_src = toker(src,return_tensors='pt',padding=True,truncation=True,max_length=max_src_len)
     tokenized_candidates = toker(flattened_candidates,return_tensors='pt',padding=True,truncation=True,max_length=max_trg_len)
@@ -87,6 +93,7 @@ def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summar
         "candidate_attention_mask":tokenized_candidates['attention_mask'],
         "candidates":candidates,
         "refs":trg,
+        "labels":torch.tensor(flattened_labels).view(batch_size,-1)
     }
 
 class RankingModel(LightningModule):
@@ -182,14 +189,15 @@ class RankingModel(LightningModule):
 
     def listwise_kl_loss_fct(self,logits,labels):
 
-        norm_target = labels
+        norm_target = labels[:,1:] # gold
+
         bs = labels.shape[0]
         min_v = torch.min(labels, 1, keepdim=True).values
         max_v = torch.max(labels, 1, keepdim=True).values
         norm_target = (labels - min_v) / (max_v - min_v + torch.finfo(torch.float32).eps)
 
         target_dist = F.softmax(norm_target / self.hparams.temperature, dim=-1)
-        model_dist = F.log_softmax(logits, dim=-1)
+        model_dist = F.log_softmax(logits[:,1:], dim=-1)
         loss = -(target_dist * model_dist - target_dist * target_dist.log()).sum()
         return loss
 
