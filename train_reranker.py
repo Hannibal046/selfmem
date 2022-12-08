@@ -73,6 +73,7 @@ def collate_fct(samples,toker,max_src_len,max_trg_len,src='document',trg='summar
                 candidates[idx] = candidates[idx][:1] + candidates[idx][-(num_candidates-1):]
         candidates[idx].sort(key=lambda x:x[1],reverse=True)
         candidates[idx] = [x[0] for x in candidates[idx]]
+
         if is_training:candidates[idx].insert(0,trg[idx])
     flattened_candidates = [x for y in candidates for x in y]
 
@@ -179,6 +180,19 @@ class RankingModel(LightningModule):
         self.log_dict(metrics_dict)
         self.print(json.dumps(metrics_dict,indent=4))
 
+    def listwise_kl_loss_fct(self,logits,labels):
+
+        norm_target = labels
+        bs = labels.shape[0]
+        min_v = torch.min(labels, 1, keepdim=True).values
+        max_v = torch.max(labels, 1, keepdim=True).values
+        norm_target = (labels - min_v) / (max_v - min_v + torch.finfo(torch.float32).eps)
+
+        target_dist = F.softmax(norm_target / self.hparams.temperature, dim=-1)
+        model_dist = F.log_softmax(logits, dim=-1)
+        loss = -(target_dist * model_dist - target_dist * target_dist.log()).sum()
+        return loss
+
     def listwise_contrastive_loss_fct(self,scores):
         ## score: [bs,num_candidates]
         if not self.hparams.requires_gold:
@@ -278,9 +292,12 @@ class RankingModel(LightningModule):
             simcls_loss = self.pairwise_ranking_loss_fct(logits)
             total_loss += simcls_loss
             self.simcls_loss_list.append(simcls_loss.item())
-        
+        if self.hparams.kl_loss:
+            kl_loss = self.listwise_kl_loss_fct(logits,batch['labels'])
+            total_loss += kl_loss
+            self.kl_loss_list.append(kl_loss.item())
+
         self.total_loss_list.append(total_loss.item())
-        
         self.rank_list.extend(self.get_ranking(logits))
 
         return total_loss
